@@ -25,23 +25,17 @@ dist-ssr
 
 # Secrets and sensitive files
 .env
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tsconfig.app.json
-!tsconfig.node.json
-!firebase.json
-!firestore.indexes.json
-!capacitor.config.ts
-!firestore.rules
-!storage.rules
-!.firebaserc
-!eslint.config.js
-!postcss.config.js
-!tailwind.config.js
-!vite.config.ts
-
-# Firebase service accounts
 *-firebase-adminsdk-*.json
+
+# Debugging and local logs
+*.log
+*.txt
+build_errors.txt
+users_list.txt
+pdf_content.txt
+deploy_full.txt
+
+# OS-specific files
+.DS_Store
+Thumbs.db
 
