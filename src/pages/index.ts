@@ -1,0 +1,14 @@
+export { default as Dashboard } from './Dashboard';
+export { default as Contacts } from './ContactList';
+export { default as ContactDetails } from './ContactDetails';
+export { default as Invoices } from './Invoices';
+export { default as Quotes } from './Quotes';
+export { default as Leads } from './Leads';
+export { default as LeadDetails } from './LeadDetails';
+export { default as Tasks } from './Tasks';
+export { default as Settings } from './Settings';
+export { default as Login } from './Login';
+export { default as HowToGuide } from './HowToGuide';
+export { default as Catalog } from './Catalog';
+export { default as Inquiries } from './Inquiries';
+export { default as SuperAdmin } from './SuperAdmin';

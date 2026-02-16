@@ -1,0 +1,73 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user has superUser role in their profile
+    function isSuperUser() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.role == 'superUser';
+    }
+
+    match /contacts/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /leads/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /tasks/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /invoices/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /payments/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /quotes/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /settings/{document} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /userProfiles/{userId} {
+      allow read: if isAuthenticated();
+      // Allow users to update their own profile, OR super users to update any profile
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isSuperUser());
+    }
+
+    match /activities/{document} {
+      allow read, create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.createdBy.uid == request.auth.uid);
+      allow delete: if isAuthenticated() && (resource.data.createdBy.uid == request.auth.uid || isSuperUser());
+    }
+
+    match /catalogItems/{document} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /inquiries/{document} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /notifications/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
