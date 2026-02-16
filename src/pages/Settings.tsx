@@ -611,7 +611,7 @@ export default function Settings() {
             )}
             {/* Version Indicator */}
             <div className="text-center text-xs text-muted-foreground pt-10">
-                Stanchion CRM v1.2.1 (Updated)
+                IncapttaOps v1.0.0
             </div>
         </div>
     );

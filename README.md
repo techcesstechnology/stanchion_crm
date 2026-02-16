@@ -1,6 +1,6 @@
-# Stanchion CRM
-
-Stanchion CRM is a modern, lightweight Customer Relationship Management system built with consistency and performance in mind using React, TypeScript, and Firebase.
+# IncapttaOps
+ 
+IncapttaOps is a modern, lightweight Operations and Customer Relationship Management system built with consistency and performance in mind using React, TypeScript, and Firebase.
 
 ## 📚 Documentation
 

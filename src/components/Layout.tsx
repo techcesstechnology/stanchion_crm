@@ -22,7 +22,9 @@ import {
     Moon,
     HelpCircle,
     Bell,
-    MessageSquare
+    MessageSquare,
+    ClipboardList,
+    Wallet
 } from "lucide-react";
 import { NotificationPanel } from "./shared/NotificationPanel";
 import { cn } from "@/lib/cn";
@@ -57,6 +59,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
     const navItems = [
         { name: "Dashboard", href: "/", icon: LayoutDashboard },
+        { name: "Job Cards", href: "/job-cards", icon: ClipboardList },
+        { name: "Finance", href: "/finance", icon: Wallet },
         { name: "Contacts", href: "/contacts", icon: Users },
         { name: "Leads", href: "/leads", icon: Target },
         { name: "Tasks", href: "/tasks", icon: CheckSquare },

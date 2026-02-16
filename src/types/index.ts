@@ -145,7 +145,10 @@ export interface CatalogItem {
     id: string;
     name: string;
     description?: string;
+    category?: string;
     price: number;
+    stock: number;
+    unit?: string;
     createdAt: Date | Timestamp;
     updatedAt: Date | Timestamp;
 }

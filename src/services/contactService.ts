@@ -15,6 +15,26 @@ export const ContactService = {
 
     // Read
     getContacts: async (): Promise<Contact[]> => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            return [
+                {
+                    id: "mock-1",
+                    name: "John Doe",
+                    email: "john@example.com",
+                    phone: "+1234567890",
+                    type: "customer",
+                    createdAt: new Date(),
+                } as any,
+                {
+                    id: "mock-2",
+                    name: "Jane Smith",
+                    email: "jane@example.com",
+                    phone: "+0987654321",
+                    type: "prospect",
+                    createdAt: new Date(),
+                } as any,
+            ];
+        }
         const q = query(collection(db, COLLECTION_NAME), orderBy("createdAt", "desc"));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({

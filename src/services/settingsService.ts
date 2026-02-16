@@ -30,6 +30,13 @@ const DEFAULT_FINANCE_SETTINGS: Omit<FinanceSettings, 'id' | 'updatedAt'> = {
 export const SettingsService = {
     // --- COMPANY SETTINGS ---
     getCompanySettings: async (): Promise<CompanySettings> => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            return {
+                id: COMPANY_DOC_ID,
+                ...DEFAULT_COMPANY_SETTINGS,
+                updatedAt: new Date(),
+            } as CompanySettings;
+        }
         const docRef = doc(db, SETTINGS_COLLECTION, COMPANY_DOC_ID);
         const docSnap = await getDoc(docRef);
 
@@ -90,6 +97,13 @@ export const SettingsService = {
 
     // --- FINANCE SETTINGS ---
     getFinanceSettings: async (): Promise<FinanceSettings> => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            return {
+                id: FINANCE_DOC_ID,
+                ...DEFAULT_FINANCE_SETTINGS,
+                updatedAt: new Date(),
+            } as FinanceSettings;
+        }
         const docRef = doc(db, SETTINGS_COLLECTION, FINANCE_DOC_ID);
         const docSnap = await getDoc(docRef);
 

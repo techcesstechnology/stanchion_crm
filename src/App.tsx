@@ -13,6 +13,8 @@ import {
   Catalog,
   HowToGuide,
   Inquiries,
+  JobCards,
+  Finance,
   SuperAdmin,
   Login
 } from '@/pages';
@@ -58,6 +60,8 @@ function App() {
               <Route path="/catalog" element={<Catalog />} />
               <Route path="/how-to" element={<HowToGuide />} />
               <Route path="/inquiries" element={<Inquiries />} /> {/* Added Inquiries route */}
+              <Route path="/job-cards" element={<JobCards />} />
+              <Route path="/finance" element={<Finance />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/super-admin" element={
                 <SuperUserRoute>

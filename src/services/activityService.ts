@@ -23,6 +23,17 @@ export const ActivityService = {
      * Get recent activities globally
      */
     getRecentActivities: async (maxItems: number = 10): Promise<Activity[]> => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            return [
+                {
+                    id: 'act-1',
+                    type: 'contact_created',
+                    description: 'New contact John Doe was added',
+                    eventDate: Timestamp.now(),
+                    createdBy: { uid: 'mock', name: 'Local Admin' }
+                } as any
+            ];
+        }
         try {
             const q = query(
                 collection(db, COLLECTION_NAME),

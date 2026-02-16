@@ -17,6 +17,14 @@ export default function Login() {
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Local-only mock mode bypass
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            toast.success("Welcome back! (Local Mode)");
+            navigate("/");
+            return;
+        }
+
         if (!email || !password) {
             toast.error("Please fill in all fields");
             return;

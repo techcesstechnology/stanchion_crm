@@ -15,6 +15,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        let isMounted = true;
+
+        const initializeMock = () => {
+            if (!isMounted) return;
+            console.log("Running in local-only mock mode");
+            const mockUser = {
+                uid: "mock-user-id",
+                email: "admin@incaptta.com",
+                displayName: "Local Admin",
+                photoURL: null,
+                role: "superUser",
+                emailVerified: true,
+                isAnonymous: false,
+                metadata: {},
+                providerData: [],
+                refreshToken: "",
+                tenantId: null,
+                delete: async () => { },
+                getIdToken: async () => "mock-token",
+                getIdTokenResult: async () => ({ token: "mock-token", expirationTime: "", authTime: "", issuedAtTime: "", signInProvider: null, claims: { role: 'superUser' } } as any),
+                reload: async () => { },
+                toJSON: () => ({}),
+                phoneNumber: null,
+            };
+            setUser(mockUser as unknown as User & { role?: string });
+            setLoading(false);
+        };
+
+        // Local-only mock mode: If no API key is provided, use a mock admin user
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            initializeMock();
+            return () => { isMounted = false; };
+        }
+
         const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
             if (firebaseUser) {
                 // Determine user role from Firestore 'userProfiles' collection
@@ -22,19 +56,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                 // Real-time listener for role changes
                 const unsubscribeFirestore = onSnapshot(userRef, (docSnap) => {
+                    if (!isMounted) return;
                     const profileData = docSnap.data();
                     const role = profileData?.role || 'viewer';
 
                     // Extend user object with role and claims (keeping claims for backward compat if needed)
-                    // Note: We are creating a new object reference to trigger re-renders
                     const extendedUser = Object.assign(Object.create(firebaseUser), firebaseUser) as User & { role?: string; claims?: Record<string, unknown> };
-
-                    // We can still fetch claims if needed, but role is now data-driven
-                    // firebaseUser.getIdTokenResult().then(token => extendedUser.claims = token.claims);
-
                     extendedUser.role = role;
 
-                    // Manually define properties that might not copy over via Object.assign for Firebase User object
+                    // Manually define properties
                     Object.defineProperty(extendedUser, 'uid', { value: firebaseUser.uid });
                     Object.defineProperty(extendedUser, 'email', { value: firebaseUser.email });
                     Object.defineProperty(extendedUser, 'displayName', { value: firebaseUser.displayName });
@@ -44,17 +74,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setLoading(false);
                 }, (error) => {
                     console.error("Error fetching user profile:", error);
-                    setLoading(false);
+                    if (isMounted) setLoading(false);
                 });
 
                 return () => unsubscribeFirestore();
             } else {
-                setUser(null);
-                setLoading(false);
+                if (isMounted) {
+                    setUser(null);
+                    setLoading(false);
+                }
             }
         });
 
-        return () => unsubscribeAuth();
+        return () => {
+            isMounted = false;
+            unsubscribeAuth();
+        };
     }, []);
 
     return (

@@ -17,6 +17,13 @@ const CATALOG_COLLECTION = "catalogItems";
 export const CatalogService = {
     // Get all items ordered by name
     getItems: async (): Promise<CatalogItem[]> => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            return [
+                { id: "item-1", name: "Cement (50kg)", category: "Building", price: 15, stock: 100, unit: "bag" },
+                { id: "item-2", name: "Steel Rod (10mm)", category: "Hardware", price: 5, stock: 500, unit: "meter" },
+                { id: "item-3", name: "River Sand", category: "Building", price: 200, stock: 10, unit: "ton" }
+            ] as CatalogItem[];
+        }
         const q = query(collection(db, CATALOG_COLLECTION), orderBy("name", "asc"));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({
@@ -48,6 +55,20 @@ export const CatalogService = {
         return await deleteDoc(doc(db, CATALOG_COLLECTION, id));
     },
 
-    // Search is handled client-side for now as Firestore full-text search requires external services
-    // or complex indexing. We'll filter the results from getItems().
+    // Deduct stock
+    deductStock: async (id: string, quantity: number) => {
+        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
+            console.log(`Mock: Deducting ${quantity} from Item ${id}`);
+            return;
+        }
+
+        const docRef = doc(db, CATALOG_COLLECTION, id);
+        // This is a simplified implementation. In production, use a transaction to ensure atomicity.
+        // Use increment() from firebase
+        const { increment } = await import("firebase/firestore");
+        await updateDoc(docRef, {
+            stock: increment(-quantity),
+            updatedAt: serverTimestamp()
+        });
+    }
 };
