@@ -13,8 +13,7 @@ const SuperAdmin = () => {
     const [password, setPassword] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
-    const [position, setPosition] = useState('');
-    const [role, setRole] = useState('admin');
+    const [role, setRole] = useState('USER');
     const [loading, setLoading] = useState(false);
 
     const validateForm = () => {
@@ -38,14 +37,12 @@ const SuperAdmin = () => {
 
         try {
             const createAdminUser = httpsCallable(functions, 'createAdminUser');
-            // Ensure we are passing all required fields
+
             const result = await createAdminUser({
                 email,
                 password,
                 role,
-                firstName,
-                lastName,
-                position
+                displayName: `${firstName} ${lastName}`,
             });
 
             console.log('User creation result:', result.data);
@@ -56,12 +53,10 @@ const SuperAdmin = () => {
             setPassword('');
             setFirstName('');
             setLastName('');
-            setPosition('');
-            setRole('admin');
+            setRole('USER');
 
         } catch (error: any) {
             console.error('Error creating user:', error);
-            // Extract meaningful message from Firebase error
             const message = error.message || 'Failed to create user';
             toast.error(`Error: ${message}`);
         } finally {
@@ -75,7 +70,7 @@ const SuperAdmin = () => {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Create New Admin User</CardTitle>
+                    <CardTitle>Create New System User</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleCreateUser} className="space-y-4">
@@ -127,30 +122,20 @@ const SuperAdmin = () => {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="position">Position</Label>
-                                <Input
-                                    id="position"
-                                    value={position}
-                                    onChange={(e) => setPosition(e.target.value)}
-                                    placeholder="e.g. Sales Manager"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="role">Role</Label>
-                                <Select value={role} onValueChange={setRole}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select role" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="admin">Admin</SelectItem>
-                                        <SelectItem value="viewer">Viewer</SelectItem>
-                                        <SelectItem value="manager">Manager</SelectItem>
-                                        <SelectItem value="sales">Sales Representative</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="role">Role</Label>
+                            <Select value={role} onValueChange={setRole}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="ADMIN">Administrator</SelectItem>
+                                    <SelectItem value="ACCOUNTANT">Accountant / Finance</SelectItem>
+                                    <SelectItem value="MANAGER">Manager / Projects</SelectItem>
+                                    <SelectItem value="STORES_APPROVER">Stores / Inventory</SelectItem>
+                                    <SelectItem value="USER">Standard User</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
 
                         <Button type="submit" className="w-full bg-[#76b900] hover:bg-[#67a300]" disabled={loading}>

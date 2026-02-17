@@ -24,11 +24,10 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { PWAInstallPrompt } from '@/components/pwa/PWAInstallPrompt';
 import { ReloadPrompt } from '@/components/pwa/ReloadPrompt';
 
-const SuperUserRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth();
-  if (loading) return <div>Loading...</div>;
-  const userRole = user ? (user as unknown as { role: string }).role : null;
-  if (!user || userRole !== 'superUser') return <Navigate to="/" />;
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { role, loading } = useAuth();
+  if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  if (role !== 'ADMIN') return <Navigate to="/" />;
   return <>{children}</>;
 };
 
@@ -64,9 +63,9 @@ function App() {
               <Route path="/finance" element={<Finance />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/super-admin" element={
-                <SuperUserRoute>
+                <AdminRoute>
                   <SuperAdmin />
-                </SuperUserRoute>
+                </AdminRoute>
               } />
             </Route>
           </Routes>

@@ -6,6 +6,7 @@ import {
     TransactionType
 } from "@/types/finance";
 import { FinanceService } from "@/services/financeService";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -22,7 +23,8 @@ import {
     Smartphone,
     History,
     Search,
-    Loader2
+    Loader2,
+    Download
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -34,9 +36,11 @@ import { cn } from "@/lib/cn";
 export default function Finance() {
     const [accounts, setAccounts] = useState<AccountBalance[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const { profile, role } = useAuth();
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [showRecordModal, setShowRecordModal] = useState(false);
+    const [showTransferModal, setShowTransferModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Form State for new transaction
@@ -45,6 +49,13 @@ export default function Finance() {
         amount: "",
         type: "expense" as TransactionType,
         category: "",
+        description: "",
+    });
+
+    const [transferData, setTransferData] = useState({
+        fromAccountId: "",
+        toAccountId: "",
+        amount: "",
         description: "",
     });
 
@@ -75,21 +86,26 @@ export default function Finance() {
     };
 
     const handleRecordTransaction = async () => {
-        if (!formData.accountId || !formData.amount || !formData.description) {
+        if (!formData.accountId || !formData.amount || !formData.description || !profile) {
             toast.error("Please fill in all required fields");
             return;
         }
 
         setIsSaving(true);
         try {
-            await FinanceService.addTransaction({
+            const txId = await FinanceService.addTransaction({
                 accountId: formData.accountId,
                 amount: parseFloat(formData.amount),
                 type: formData.type,
                 category: formData.category || (formData.type === 'income' ? 'Revenue' : 'General Expense'),
                 description: formData.description,
-            });
-            toast.success("Transaction recorded and pending approval");
+            }, profile);
+
+            // Auto-submit for now if the user recorded it, or just leave as draft
+            // Let's auto-submit for convenience in this UI
+            await FinanceService.submitTransaction(txId, profile);
+
+            toast.success("Transaction recorded and submitted for approval");
             setShowRecordModal(false);
             setFormData({
                 accountId: accounts[0]?.id || "",
@@ -107,17 +123,87 @@ export default function Finance() {
         }
     };
 
-    const handleApproveTransaction = async (id: string) => {
+    const handleApproveTransaction = async (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => {
+        if (!profile) return;
         setLoading(true);
         try {
-            await FinanceService.approveTransaction(id);
-            toast.success("Transaction approved and balance updated");
+            if (stage === 'ACCOUNTANT') {
+                await FinanceService.approveAsAccountant(id, profile, "Approved by Accountant");
+            } else {
+                await FinanceService.approveAsManager(id, profile, "Approved by Manager");
+            }
+            toast.success("Transaction approved");
             loadFinanceData();
         } catch (error) {
             console.error("Error approving transaction:", error);
             toast.error("Failed to approve transaction");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleRejectTransaction = async (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => {
+        if (!profile) return;
+        const note = prompt("Please enter a reason for rejection:");
+        if (note === null) {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        try {
+            if (stage === 'ACCOUNTANT') {
+                await FinanceService.rejectAsAccountant(id, profile, note);
+            } else {
+                await FinanceService.rejectAsManager(id, profile, note);
+            }
+            toast.success("Transaction rejected");
+            loadFinanceData();
+        } catch (error) {
+            console.error("Error rejecting transaction:", error);
+            toast.error("Failed to reject transaction");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTransferFunds = async () => {
+        if (!transferData.fromAccountId || !transferData.toAccountId || !transferData.amount || !transferData.description || !profile) {
+            toast.error("Please fill in all required fields");
+            return;
+        }
+
+        if (transferData.fromAccountId === transferData.toAccountId) {
+            toast.error("Source and destination accounts must be different");
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const txId = await FinanceService.transferFunds(
+                transferData.fromAccountId,
+                transferData.toAccountId,
+                parseFloat(transferData.amount),
+                transferData.description,
+                profile
+            );
+
+            await FinanceService.submitTransaction(txId, profile);
+
+            toast.success("Transfer recorded and submitted for approval");
+            setShowTransferModal(false);
+            setTransferData({
+                fromAccountId: accounts[0]?.id || "",
+                toAccountId: accounts[1]?.id || "",
+                amount: "",
+                description: ""
+            });
+            loadFinanceData();
+        } catch (error) {
+            console.error("Error recording transfer:", error);
+            toast.error("Failed to record transfer");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -132,10 +218,13 @@ export default function Finance() {
 
     const getStatusBadge = (status: Transaction["status"]) => {
         switch (status) {
-            case "approved": return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Approved</Badge>;
-            case "pending": return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>;
-            case "rejected": return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Rejected</Badge>;
-            default: return null;
+            case "APPROVED_FINAL": return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Approved</Badge>;
+            case "SUBMITTED": return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200"><Clock className="w-3 h-3 mr-1" /> Penting (Acc)</Badge>;
+            case "APPROVED_BY_ACCOUNTANT": return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200"><Clock className="w-3 h-3 mr-1" /> Pending (Mgr)</Badge>;
+            case "REJECTED_BY_ACCOUNTANT":
+            case "REJECTED_BY_MANAGER": return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Rejected</Badge>;
+            case "DRAFT": return <Badge variant="outline"><Plus className="w-3 h-3 mr-1" /> Draft</Badge>;
+            default: return <Badge variant="secondary">{status}</Badge>;
         }
     };
 
@@ -266,19 +355,82 @@ export default function Finance() {
                                             )}>
                                                 {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </p>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-col items-end gap-2 text-right">
                                                 {getStatusBadge(tx.status)}
-                                                {tx.status === "pending" && (
+
+                                                {/* Action Buttons based on Role & Stage */}
+                                                {(tx.status === "SUBMITTED" && role === "ACCOUNTANT") && (
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleApproveTransaction(tx.id, 'ACCOUNTANT');
+                                                            }}
+                                                            size="sm"
+                                                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold h-7 text-[10px] px-3 rounded-full"
+                                                        >
+                                                            Acc Approve
+                                                        </Button>
+                                                        <Button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleRejectTransaction(tx.id, 'ACCOUNTANT');
+                                                            }}
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="border-red-200 text-red-600 hover:bg-red-50 font-bold h-7 text-[10px] px-3 rounded-full"
+                                                        >
+                                                            Acc Reject
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {(tx.status === "APPROVED_BY_ACCOUNTANT" && role === "MANAGER") && (
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleApproveTransaction(tx.id, 'MANAGER');
+                                                            }}
+                                                            size="sm"
+                                                            className="bg-green-600 hover:bg-green-700 text-white font-bold h-7 text-[10px] px-3 rounded-full"
+                                                        >
+                                                            Mgr Approve
+                                                        </Button>
+                                                        <Button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleRejectTransaction(tx.id, 'MANAGER');
+                                                            }}
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="border-red-200 text-red-600 hover:bg-red-50 font-bold h-7 text-[10px] px-3 rounded-full"
+                                                        >
+                                                            Mgr Reject
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {/* Download Approval Letter - Only for APPROVED_FINAL with letter */}
+                                                {(tx.status === "APPROVED_FINAL" && (tx as any).approvalLetter?.url) && (
                                                     <Button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleApproveTransaction(tx.id);
+                                                            window.open((tx as any).approvalLetter.url, '_blank');
                                                         }}
                                                         size="sm"
-                                                        className="bg-green-600 hover:bg-green-700 text-white font-bold h-7 text-[10px] px-3 rounded-full"
+                                                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold h-7 text-[10px] px-3 rounded-full flex items-center gap-1.5"
                                                     >
-                                                        Approve
+                                                        <Download className="w-3 h-3" />
+                                                        Approval Letter
                                                     </Button>
+                                                )}
+
+                                                {/* Super admin can do both if needed for testing, but let's stick to strict roles for now */}
+                                                {(role === "ADMIN" && (tx.status === "SUBMITTED" || tx.status === "APPROVED_BY_ACCOUNTANT")) && (
+                                                    <div className="text-[10px] font-bold text-slate-400 italic">
+                                                        Admin override available in details
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
@@ -308,7 +460,17 @@ export default function Finance() {
                         </CardHeader>
                     </Card>
 
-                    <Card className="border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden relative group cursor-pointer hover:border-slate-300 transition-all duration-200">
+                    <Card
+                        onClick={() => {
+                            setTransferData({
+                                ...transferData,
+                                fromAccountId: accounts[0]?.id || "",
+                                toAccountId: accounts[1]?.id || ""
+                            });
+                            setShowTransferModal(true);
+                        }}
+                        className="border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden relative group cursor-pointer hover:border-slate-300 transition-all duration-200"
+                    >
                         <CardHeader>
                             <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-900 flex items-center justify-center text-slate-500 mb-4">
                                 <ArrowUpRight className="w-6 h-6 text-slate-400" />
@@ -393,6 +555,7 @@ export default function Finance() {
                             <div className="space-y-2">
                                 <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Target Account</Label>
                                 <select
+                                    aria-label="Target Account"
                                     className="w-full p-3 rounded-xl border-2 bg-slate-50 dark:bg-slate-900 font-bold text-sm outline-none focus:border-green-500 transition-all appearance-none"
                                     value={formData.accountId}
                                     onChange={e => setFormData({ ...formData, accountId: e.target.value })}
@@ -433,6 +596,88 @@ export default function Finance() {
                             >
                                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                                 Commit Ledger
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            )}
+
+            {/* Transfer Modal */}
+            {showTransferModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+                    <Card className="w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-300 border-slate-100 bg-white dark:bg-slate-950 overflow-hidden">
+                        <CardHeader className="border-b bg-slate-50/50 dark:bg-slate-900/50">
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-xl font-black uppercase tracking-tighter">Inter-Account Transfer</CardTitle>
+                                <Button variant="ghost" size="icon" onClick={() => setShowTransferModal(false)} className="rounded-full">
+                                    <Plus className="rotate-45 h-6 w-6" />
+                                </Button>
+                            </div>
+                        </CardHeader>
+
+                        <CardContent className="p-6 space-y-6">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Source Account</Label>
+                                    <select
+                                        aria-label="Source Account"
+                                        className="w-full p-3 rounded-xl border-2 bg-slate-50 dark:bg-slate-900 font-bold text-sm outline-none focus:border-green-500 transition-all appearance-none"
+                                        value={transferData.fromAccountId}
+                                        onChange={e => setTransferData({ ...transferData, fromAccountId: e.target.value })}
+                                    >
+                                        <option value="">Select account</option>
+                                        {accounts.map(acc => (
+                                            <option key={acc.id} value={acc.id}>{acc.name} (${acc.balance})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Destination Account</Label>
+                                    <select
+                                        aria-label="Destination Account"
+                                        className="w-full p-3 rounded-xl border-2 bg-slate-50 dark:bg-slate-900 font-bold text-sm outline-none focus:border-green-500 transition-all appearance-none"
+                                        value={transferData.toAccountId}
+                                        onChange={e => setTransferData({ ...transferData, toAccountId: e.target.value })}
+                                    >
+                                        <option value="">Select account</option>
+                                        {accounts.map(acc => (
+                                            <option key={acc.id} value={acc.id}>{acc.name} (${acc.balance})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Amount (USD)</Label>
+                                <Input
+                                    type="number"
+                                    placeholder="0.00"
+                                    className="font-black text-lg border-2"
+                                    value={transferData.amount}
+                                    onChange={e => setTransferData({ ...transferData, amount: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Transfer Description</Label>
+                                <Input
+                                    placeholder="e.g. Funding Petty Cash, Bank to EcoCash Top-up"
+                                    className="font-bold border-2"
+                                    value={transferData.description}
+                                    onChange={e => setTransferData({ ...transferData, description: e.target.value })}
+                                />
+                            </div>
+                        </CardContent>
+
+                        <div className="p-6 border-t bg-slate-50/50 dark:bg-slate-900/50 flex gap-4">
+                            <Button variant="ghost" className="flex-1 font-bold uppercase tracking-widest text-xs" onClick={() => setShowTransferModal(false)}>Cancel</Button>
+                            <Button
+                                className="flex-1 bg-slate-900 dark:bg-slate-100 dark:text-slate-900 hover:bg-black dark:hover:bg-white font-black uppercase tracking-widest text-xs"
+                                onClick={handleTransferFunds}
+                                disabled={isSaving}
+                            >
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ArrowUpRight className="w-4 h-4 mr-2" />}
+                                Confirm Transfer
                             </Button>
                         </div>
                     </Card>

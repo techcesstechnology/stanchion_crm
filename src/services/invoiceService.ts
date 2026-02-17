@@ -65,8 +65,8 @@ export const InvoiceService = {
         if (userProfile) {
             invoiceData.createdBy = {
                 uid: userProfile.uid,
-                name: `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || 'Internal User',
-                position: userProfile.position || '',
+                name: userProfile.displayName,
+                position: '',
                 email: userProfile.email || '',
                 signatureUrl: userProfile.signatureUrl || ''
             };
@@ -104,8 +104,8 @@ export const InvoiceService = {
         if (userProfile) {
             quoteData.createdBy = {
                 uid: userProfile.uid,
-                name: `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || 'Internal User',
-                position: userProfile.position || '',
+                name: userProfile.displayName,
+                position: '',
                 email: userProfile.email || '',
                 signatureUrl: userProfile.signatureUrl || ''
             };
@@ -156,11 +156,65 @@ export const InvoiceService = {
         } as Quote));
     },
 
-    addPayment: async (payment: any) => {
-        const sanitizedData = sanitizeData({
-            ...payment,
-            createdAt: serverTimestamp(),
+    addPayment: async (payment: {
+        amount: number;
+        date: Date;
+        method: string;
+        notes?: string;
+        invoiceId: string;
+        invoiceNumber?: string;
+        clientName: string;
+        clientId: string;
+        destinationAccountId: string;
+        recordedBy?: { uid: string; name: string; email?: string } | null;
+    }) => {
+        if (!payment.destinationAccountId) {
+            throw new Error("Destination account is required to record a payment.");
+        }
+
+        return await runTransaction(db, async (transaction) => {
+            // 1. Create the finance transaction first to get its ID
+            const txRef = doc(collection(db, "financeTransactions"));
+            const financeTxId = txRef.id;
+
+            const financeTxData = {
+                type: 'INCOME',
+                amount: payment.amount,
+                currency: "USD", // Default or fetch from account
+                targetAccountId: payment.destinationAccountId,
+                referenceType: 'INVOICE_PAYMENT',
+                referenceId: payment.invoiceId,
+                date: serverTimestamp(),
+                status: 'SUBMITTED',
+                workflow: {
+                    stage: 'ACCOUNTANT',
+                    submittedAt: serverTimestamp(),
+                    currentApproverRole: 'ACCOUNTANT'
+                },
+                submittedBy: payment.recordedBy || { uid: "system", name: "System" },
+                approvalTrail: [{
+                    stage: 'ACCOUNTANT',
+                    action: 'SUBMIT',
+                    byUid: payment.recordedBy?.uid || "system",
+                    byName: payment.recordedBy?.name || "System",
+                    at: new Date(),
+                    note: `Payment recorded for Invoice ${payment.invoiceNumber}`
+                }]
+            };
+
+            transaction.set(txRef, sanitizeData(financeTxData));
+
+            // 2. Create the payment record with the link
+            const paymentRef = doc(collection(db, "payments"));
+            const paymentData = {
+                ...payment,
+                financeTxId: financeTxId,
+                createdAt: serverTimestamp(),
+            };
+
+            transaction.set(paymentRef, sanitizeData(paymentData));
+
+            return { paymentId: paymentRef.id, financeTxId };
         });
-        return await addDoc(collection(db, "payments"), sanitizedData);
     }
 };

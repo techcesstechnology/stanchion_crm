@@ -12,32 +12,33 @@ import { Loader2, Upload, Trash2 } from "lucide-react";
 import SignaturePad from "@/components/shared/SignaturePad";
 
 export default function UserProfileSettings() {
-    const { user } = useAuth();
+    const { firebaseUser } = useAuth();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [signatureTab, setSignatureTab] = useState("draw");
 
     useEffect(() => {
-        if (user) {
+        if (firebaseUser) {
             loadProfile();
         }
-    }, [user]);
+    }, [firebaseUser]);
 
     const loadProfile = async () => {
-        if (!user) return;
+        if (!firebaseUser) return;
         setLoading(true);
         try {
-            const data = await UserService.getUserProfile(user.uid);
+            const data = await UserService.getUserProfile(firebaseUser.uid);
             if (data) {
                 setProfile(data);
             } else {
                 setProfile({
-                    uid: user.uid,
-                    firstName: "",
-                    lastName: "",
-                    position: "",
-                    email: user.email || "",
+                    uid: firebaseUser.uid,
+                    displayName: firebaseUser.displayName || "",
+                    email: firebaseUser.email || "",
+                    role: "USER",
+                    active: true,
+                    createdAt: new Date(),
                     updatedAt: new Date(),
                 });
             }
@@ -50,10 +51,10 @@ export default function UserProfileSettings() {
     };
 
     const handleSave = async () => {
-        if (!user || !profile) return;
+        if (!firebaseUser || !profile) return;
         setSaving(true);
         try {
-            await UserService.updateUserProfile(user.uid, profile);
+            await UserService.updateUserProfile(firebaseUser.uid, profile);
             toast.success("Profile updated successfully");
         } catch (error) {
             console.error("Error updating profile:", error);
@@ -64,12 +65,12 @@ export default function UserProfileSettings() {
     };
 
     const handleSignatureSave = async (dataUrl: string) => {
-        if (!user) return;
+        if (!firebaseUser) return;
         setSaving(true);
         try {
             const updatedProfile = { ...profile!, signatureUrl: dataUrl };
             setProfile(updatedProfile);
-            await UserService.updateUserProfile(user.uid, { signatureUrl: dataUrl });
+            await UserService.updateUserProfile(firebaseUser.uid, { signatureUrl: dataUrl });
             toast.success("Signature saved successfully");
         } catch (error) {
             console.error("Error saving signature:", error);
@@ -81,7 +82,7 @@ export default function UserProfileSettings() {
 
     const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file && user) {
+        if (file && firebaseUser) {
             if (!file.type.startsWith('image/')) {
                 toast.error("Please upload an image file");
                 return;
@@ -96,13 +97,13 @@ export default function UserProfileSettings() {
     };
 
     const handleClearSignature = async () => {
-        if (!user || !profile) return;
+        if (!firebaseUser || !profile) return;
         if (confirm("Are you sure you want to remove your signature?")) {
             setSaving(true);
             try {
                 const updatedProfile = { ...profile, signatureUrl: undefined };
                 setProfile(updatedProfile);
-                await UserService.updateUserProfile(user.uid, { signatureUrl: undefined as any }); // Cast to any to delete field if needed or just null
+                await UserService.updateUserProfile(firebaseUser.uid, { signatureUrl: undefined as any });
                 toast.success("Signature removed");
             } catch (error) {
                 console.error("Error clearing signature:", error);
@@ -131,33 +132,22 @@ export default function UserProfileSettings() {
                     <CardDescription>Update your personal details used on documents</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="firstName">First Name</Label>
-                            <Input
-                                id="firstName"
-                                value={profile.firstName}
-                                onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
-                                placeholder="John"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="lastName">Last Name</Label>
-                            <Input
-                                id="lastName"
-                                value={profile.lastName}
-                                onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
-                                placeholder="Doe"
-                            />
-                        </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="displayName">Full Name</Label>
+                        <Input
+                            id="displayName"
+                            value={profile.displayName}
+                            onChange={(e) => setProfile({ ...profile, displayName: e.target.value })}
+                            placeholder="John Doe"
+                        />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="position">Position / Job Title</Label>
+                        <Label htmlFor="role">Role (Read Only)</Label>
                         <Input
-                            id="position"
-                            value={profile.position}
-                            onChange={(e) => setProfile({ ...profile, position: e.target.value })}
-                            placeholder="Sales Manager"
+                            id="role"
+                            value={profile.role}
+                            disabled
+                            className="bg-slate-100 dark:bg-slate-800"
                         />
                     </div>
                     <div className="space-y-2">

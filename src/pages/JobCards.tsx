@@ -4,6 +4,7 @@ import { CatalogItem, Contact } from "@/types";
 import { JobCardService } from "@/services/jobCardService";
 import { CatalogService } from "@/services/catalogService";
 import { ContactService } from "@/services/contactService";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ export default function JobCards() {
     const [jobCards, setJobCards] = useState<JobCard[]>([]);
     const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
     const [contacts, setContacts] = useState<Contact[]>([]);
+    const { profile, role } = useAuth();
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -104,20 +106,19 @@ export default function JobCards() {
     const calculateTotal = () => selectedMaterials.reduce((sum, m) => sum + m.totalCost, 0);
 
     const handleCreateJobCard = async () => {
+        if (!profile) return;
         setIsSaving(true);
         try {
-            await JobCardService.addJobCard({
+            const id = await JobCardService.addJobCard({
                 ...formData,
                 materials: selectedMaterials,
-                status: 'pending_approval',
-                createdBy: { uid: "mock", name: "Local Admin" }
-            } as any);
+            }, profile);
 
-            toast.success("Job Card submitted for approval");
+            await JobCardService.submitJobCard(id, profile);
+
+            toast.success("Job Card submitted for Accountant approval");
             handleCloseModal();
             loadData();
-            // Update task progress locally
-            console.log("Task Progress: Step 2 Complete");
         } catch (error) {
             console.error("Error creating job card:", error);
             toast.error("Failed to create job card");
@@ -126,17 +127,42 @@ export default function JobCards() {
         }
     };
 
-    const handleApproveJobCard = async (id: string) => {
-        if (!confirm("Are you sure you want to approve this job card? Inventory will be deducted automatically.")) return;
-
+    const handleApproveJobCard = async (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => {
+        if (!profile) return;
         setLoading(true);
         try {
-            await JobCardService.updateJobCardStatus(id, 'approved');
-            toast.success("Job Card approved and inventory synchronized");
+            if (stage === 'ACCOUNTANT') {
+                await JobCardService.approveAsAccountant(id, profile, "Approved by Accountant");
+            } else {
+                await JobCardService.approveAsManager(id, profile, "Approved by Manager");
+            }
+            toast.success("Job Card approved");
             loadData();
         } catch (error) {
             console.error("Error approving job card:", error);
             toast.error("Failed to approve job card");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRejectJobCard = async (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => {
+        if (!profile) return;
+        const note = prompt("Please enter a reason for rejection:");
+        if (note === null) return;
+
+        setLoading(true);
+        try {
+            if (stage === 'ACCOUNTANT') {
+                await JobCardService.rejectAsAccountant(id, profile, note);
+            } else {
+                await JobCardService.rejectAsManager(id, profile, note);
+            }
+            toast.success("Job Card rejected");
+            loadData();
+        } catch (error) {
+            console.error("Error rejecting job card:", error);
+            toast.error("Failed to reject job card");
         } finally {
             setLoading(false);
         }
@@ -151,11 +177,13 @@ export default function JobCards() {
 
     const getStatusBadge = (status: JobCard['status']) => {
         switch (status) {
-            case 'approved': return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Approved</Badge>;
-            case 'pending_approval': return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>;
-            case 'completed': return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Completed</Badge>;
-            case 'cancelled': return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Cancelled</Badge>;
-            default: return <Badge variant="secondary"><FileText className="w-3 h-3 mr-1" /> Draft</Badge>;
+            case "APPROVED_FINAL": return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Approved</Badge>;
+            case "SUBMITTED": return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200"><Clock className="w-3 h-3 mr-1" /> Pending (Acc)</Badge>;
+            case "APPROVED_BY_ACCOUNTANT": return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200"><Clock className="w-3 h-3 mr-1" /> Pending (Mgr)</Badge>;
+            case "REJECTED_BY_ACCOUNTANT":
+            case "REJECTED_BY_MANAGER": return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Rejected</Badge>;
+            case "DRAFT": return <Badge variant="outline"><FileText className="w-3 h-3 mr-1" /> Draft</Badge>;
+            default: return <Badge variant="secondary">{status}</Badge>;
         }
     };
 
@@ -241,17 +269,50 @@ export default function JobCards() {
                                         {card.materials?.length || 0} Materials Allocated
                                     </div>
 
-                                    {card.status === 'pending_approval' && (
-                                        <div className="pt-2">
+                                    {(card.status === 'SUBMITTED' && role === 'ACCOUNTANT') && (
+                                        <div className="pt-2 flex gap-2">
                                             <Button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleApproveJobCard(card.id);
+                                                    handleApproveJobCard(card.id, 'ACCOUNTANT');
                                                 }}
-                                                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg transition-all shadow-md shadow-green-100 flex items-center justify-center gap-2"
+                                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition-all shadow-md text-xs"
                                             >
-                                                <CheckCircle2 className="w-4 h-4" />
-                                                Approve & Sync
+                                                Acc Approve
+                                            </Button>
+                                            <Button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRejectJobCard(card.id, 'ACCOUNTANT');
+                                                }}
+                                                variant="outline"
+                                                className="flex-1 text-red-600 border-red-200 hover:bg-red-50 text-xs"
+                                            >
+                                                Acc Reject
+                                            </Button>
+                                        </div>
+                                    )}
+
+                                    {(card.status === 'APPROVED_BY_ACCOUNTANT' && role === 'MANAGER') && (
+                                        <div className="pt-2 flex gap-2">
+                                            <Button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleApproveJobCard(card.id, 'MANAGER');
+                                                }}
+                                                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg transition-all shadow-md text-xs"
+                                            >
+                                                Mgr Approve
+                                            </Button>
+                                            <Button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRejectJobCard(card.id, 'MANAGER');
+                                                }}
+                                                variant="outline"
+                                                className="flex-1 text-red-600 border-red-200 hover:bg-red-50 text-xs"
+                                            >
+                                                Mgr Reject
                                             </Button>
                                         </div>
                                     )}

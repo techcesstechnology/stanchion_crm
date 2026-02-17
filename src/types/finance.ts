@@ -1,4 +1,5 @@
 import { Timestamp } from "firebase/firestore";
+import { BaseRequest } from "./index";
 
 export type AccountType = 'bank' | 'ecocash' | 'cash';
 export type TransactionType = 'income' | 'expense' | 'transfer';
@@ -12,24 +13,16 @@ export interface AccountBalance {
     updatedAt: Date | Timestamp;
 }
 
-export interface Transaction {
+export interface Transaction extends BaseRequest {
     id: string;
     accountId: string;
+    toAccountId?: string; // For transfers
     amount: number;
     type: TransactionType;
     category: string;
     description: string;
     date: Date | Timestamp;
     referenceId?: string; // e.g. JobCard ID, Invoice ID, or Quote ID
-    status: 'pending' | 'approved' | 'rejected';
-    createdBy: {
-        uid: string;
-        name: string;
-    };
-    approvedBy?: string;
-    approvedAt?: Date | Timestamp;
 }
 
-export interface CreateTransactionDTO extends Omit<Transaction, 'id' | 'date' | 'status' | 'createdBy'> {
-    // Basic fields for creating a transaction
-}
+export type CreateTransactionDTO = Omit<Transaction, 'id' | 'date' | 'status' | 'workflow' | 'submittedBy' | 'approvalTrail'>;

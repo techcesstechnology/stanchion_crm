@@ -1,106 +1,111 @@
-import { db, auth } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
     AccountBalance,
     Transaction,
     CreateTransactionDTO
 } from "@/types/finance";
+import { UserProfile } from "@/types";
+import { WorkflowService } from "./workflowService";
 import {
     collection,
     addDoc,
     getDocs,
-    updateDoc,
-    getDoc,
     doc,
     serverTimestamp,
     query,
     orderBy,
-    where,
-    limit,
-    increment
+    limit
 } from "firebase/firestore";
 
 const ACCOUNTS_COLLECTION = "accounts";
 const TRANSACTIONS_COLLECTION = "transactions";
 
-// Mock data for local testing
-const MOCK_ACCOUNTS: AccountBalance[] = [
-    { id: "acc-1", name: "Petty Cash (USD)", type: "cash", balance: 500, currency: "USD", updatedAt: new Date() },
-    { id: "acc-2", name: "Bank Account (USD)", type: "bank", balance: 12500, currency: "USD", updatedAt: new Date() },
-    { id: "acc-3", name: "EcoCash (USD)", type: "ecocash", balance: 1200, currency: "USD", updatedAt: new Date() }
-];
-
 export const FinanceService = {
     // Get all accounts
     getAccounts: async (): Promise<AccountBalance[]> => {
-        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-            return MOCK_ACCOUNTS;
-        }
         const snapshot = await getDocs(collection(db, ACCOUNTS_COLLECTION));
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccountBalance));
     },
 
-    // Record a transaction and update account balance
-    addTransaction: async (data: CreateTransactionDTO): Promise<string> => {
-        const user = auth.currentUser;
-
-        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-            console.log("Mock: Adding Transaction", data);
-            return "mock-tx-id-" + Math.random().toString(36).substr(2, 9);
-        }
-
-        if (!user) throw new Error("User must be authenticated");
-
-        // 1. Create transaction record
+    // Record a transaction
+    addTransaction: async (data: CreateTransactionDTO, profile: UserProfile): Promise<string> => {
+        // 1. Create transaction record in DRAFT status
         const txRef = await addDoc(collection(db, TRANSACTIONS_COLLECTION), {
             ...data,
-            status: 'pending',
+            status: 'DRAFT',
             date: serverTimestamp(),
-            createdBy: {
-                uid: user.uid,
-                name: user.displayName || user.email || "Unknown"
-            }
+            workflow: {
+                stage: 'ACCOUNTANT',
+                submittedAt: null,
+                currentApproverRole: 'NONE'
+            },
+            submittedBy: {
+                uid: profile.uid,
+                name: profile.displayName
+            },
+            approvalTrail: []
         });
 
         return txRef.id;
     },
 
-    // Approve transaction and update balance
-    approveTransaction: async (txId: string) => {
-        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-            console.log("Mock: Approving Transaction", txId);
-            return;
-        }
-
+    // Submit for approval
+    submitTransaction: async (txId: string, profile: UserProfile) => {
         const txRef = doc(db, TRANSACTIONS_COLLECTION, txId);
-        const txSnap = await getDoc(txRef);
-        if (!txSnap.exists()) throw new Error("Transaction not found");
+        await WorkflowService.submitRequest(txRef, profile);
+    },
 
-        const txData = txSnap.data() as Transaction;
-        if (txData.status !== 'pending') throw new Error("Transaction already processed");
+    // Approval Flow
+    approveAsAccountant: async (txId: string, profile: UserProfile, note?: string) => {
+        const txRef = doc(db, TRANSACTIONS_COLLECTION, txId);
+        await WorkflowService.approveAsAccountant(txRef, profile, note);
+    },
 
-        // Determine adjustment amount
-        const adjustment = txData.type === 'income' ? txData.amount : -txData.amount;
+    rejectAsAccountant: async (txId: string, profile: UserProfile, note: string) => {
+        const txRef = doc(db, TRANSACTIONS_COLLECTION, txId);
+        await WorkflowService.rejectAsAccountant(txRef, profile, note);
+    },
 
-        // 2. Update account balance
-        const accRef = doc(db, ACCOUNTS_COLLECTION, txData.accountId);
-        await updateDoc(accRef, {
-            balance: increment(adjustment),
-            updatedAt: serverTimestamp()
+    approveAsManager: async (txId: string, profile: UserProfile, note?: string) => {
+        const txRef = doc(db, TRANSACTIONS_COLLECTION, txId);
+        await WorkflowService.approveAsManager(txRef, profile, note);
+    },
+
+    rejectAsManager: async (txId: string, profile: UserProfile, note: string) => {
+        const txRef = doc(db, TRANSACTIONS_COLLECTION, txId);
+        await WorkflowService.rejectAsManager(txRef, profile, note);
+    },
+
+    // Transfer funds between accounts
+    transferFunds: async (fromAccountId: string, toAccountId: string, amount: number, description: string, profile: UserProfile) => {
+
+        // Create a single 'transfer' type transaction
+        const txRef = await addDoc(collection(db, TRANSACTIONS_COLLECTION), {
+            accountId: fromAccountId,
+            toAccountId: toAccountId,
+            amount: amount,
+            type: 'transfer',
+            category: 'Internal Transfer',
+            description: description,
+            status: 'DRAFT',
+            date: serverTimestamp(),
+            workflow: {
+                stage: 'ACCOUNTANT',
+                submittedAt: null,
+                currentApproverRole: 'NONE'
+            },
+            submittedBy: {
+                uid: profile.uid,
+                name: profile.displayName
+            },
+            approvalTrail: []
         });
 
-        // 3. Update transaction status
-        await updateDoc(txRef, {
-            status: 'approved',
-            approvedAt: serverTimestamp(),
-            approvedBy: auth.currentUser?.displayName || auth.currentUser?.email || "Unknown"
-        });
+        return txRef.id;
     },
 
     // Get recent transactions
     getRecentTransactions: async (l: number = 10): Promise<Transaction[]> => {
-        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-            return [];
-        }
         const q = query(collection(db, TRANSACTIONS_COLLECTION), orderBy("date", "desc"), limit(l));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));

@@ -35,7 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const [companyName, setCompanyName] = useState<string>("Incaptta CRM");
     const location = useLocation();
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { firebaseUser, role, profile } = useAuth();
     const { theme, toggleTheme } = useTheme();
     const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -72,7 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { name: "Settings", href: "/settings", icon: Settings },
     ];
 
-    if (user && (user as unknown as { role: string }).role === 'superUser') {
+    if (role === 'ADMIN') {
         navItems.push({ name: 'Super Admin', href: '/super-admin', icon: ShieldAlert });
     }
 
@@ -126,10 +126,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center gap-3 px-3">
                             <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                                {user?.email?.charAt(0).toUpperCase()}
+                                {profile?.displayName?.charAt(0).toUpperCase() || firebaseUser?.email?.charAt(0).toUpperCase()}
                             </div>
                             <div className="overflow-hidden flex-1">
-                                <p className="text-sm font-medium truncate">{user?.email}</p>
+                                <p className="text-sm font-medium truncate">{profile?.displayName || firebaseUser?.displayName}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">{firebaseUser?.email}</p>
                             </div>
                         </div>
                         <Button

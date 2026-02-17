@@ -1,6 +1,5 @@
 import { Timestamp } from "firebase/firestore";
-
-export type JobCardStatus = 'draft' | 'pending_approval' | 'approved' | 'completed' | 'cancelled';
+import { BaseRequest } from "./index";
 
 export interface JobCardMaterial {
     id: string;
@@ -11,7 +10,7 @@ export interface JobCardMaterial {
     units?: string;
 }
 
-export interface JobCard {
+export interface JobCard extends BaseRequest {
     id: string;
     projectName: string;
     description: string;
@@ -19,18 +18,13 @@ export interface JobCard {
     clientId: string;
     materials: JobCardMaterial[];
     totalCost: number;
-    status: JobCardStatus;
+    issuedMovementId?: string;
+    returnedMovementIds?: string[];
     createdAt: Timestamp | Date;
     updatedAt: Timestamp | Date;
-    approvedAt?: Timestamp | Date;
-    approvedBy?: string;
-    createdBy: {
-        uid: string;
-        name: string;
-    };
 }
 
-export interface CreateJobCardDTO extends Omit<JobCard, 'id' | 'createdAt' | 'updatedAt' | 'totalCost'> {
+export interface CreateJobCardDTO extends Omit<JobCard, 'id' | 'createdAt' | 'updatedAt' | 'totalCost' | 'status' | 'workflow' | 'submittedBy' | 'approvalTrail'> {
     projectName: string;
     clientName: string;
 }

@@ -1,102 +1,102 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { User, onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase"; // Assuming db is exported from your firebase config
+import { auth, db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
+import { UserProfile, UserRole } from "@/types";
 
 interface AuthContextType {
-    user: (User & { role?: string; claims?: Record<string, unknown> }) | null;
+    user: User | null; // Alias for firebaseUser for backward compatibility
+    firebaseUser: User | null;
+    profile: UserProfile | null;
+    role: UserRole | null;
     loading: boolean;
+    hasRole: (requiredRoles: UserRole[]) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
+const AuthContext = createContext<AuthContextType>({
+    user: null,
+    firebaseUser: null,
+    profile: null,
+    role: null,
+    loading: true,
+    hasRole: () => false,
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+    const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        let isMounted = true;
+        let unsubscribeFirestore: (() => void) | null = null;
 
-        const initializeMock = () => {
-            if (!isMounted) return;
-            console.log("Running in local-only mock mode");
-            const mockUser = {
-                uid: "mock-user-id",
-                email: "admin@incaptta.com",
-                displayName: "Local Admin",
-                photoURL: null,
-                role: "superUser",
-                emailVerified: true,
-                isAnonymous: false,
-                metadata: {},
-                providerData: [],
-                refreshToken: "",
-                tenantId: null,
-                delete: async () => { },
-                getIdToken: async () => "mock-token",
-                getIdTokenResult: async () => ({ token: "mock-token", expirationTime: "", authTime: "", issuedAtTime: "", signInProvider: null, claims: { role: 'superUser' } } as any),
-                reload: async () => { },
-                toJSON: () => ({}),
-                phoneNumber: null,
-            };
-            setUser(mockUser as unknown as User & { role?: string });
-            setLoading(false);
-        };
+        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                setFirebaseUser(user);
 
-        // Local-only mock mode: If no API key is provided, use a mock admin user
-        if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-            initializeMock();
-            return () => { isMounted = false; };
-        }
-
-        const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                // Determine user role from Firestore 'userProfiles' collection
-                const userRef = doc(db, "userProfiles", firebaseUser.uid);
-
-                // Real-time listener for role changes
-                const unsubscribeFirestore = onSnapshot(userRef, (docSnap) => {
-                    if (!isMounted) return;
-                    const profileData = docSnap.data();
-                    const role = profileData?.role || 'viewer';
-
-                    // Extend user object with role and claims (keeping claims for backward compat if needed)
-                    const extendedUser = Object.assign(Object.create(firebaseUser), firebaseUser) as User & { role?: string; claims?: Record<string, unknown> };
-                    extendedUser.role = role;
-
-                    // Manually define properties
-                    Object.defineProperty(extendedUser, 'uid', { value: firebaseUser.uid });
-                    Object.defineProperty(extendedUser, 'email', { value: firebaseUser.email });
-                    Object.defineProperty(extendedUser, 'displayName', { value: firebaseUser.displayName });
-                    Object.defineProperty(extendedUser, 'photoURL', { value: firebaseUser.photoURL });
-
-                    setUser(extendedUser);
+                // Real-time listener for profile changes
+                const userRef = doc(db, "userProfiles", user.uid);
+                unsubscribeFirestore = onSnapshot(userRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setProfile(docSnap.data() as UserProfile);
+                    } else {
+                        console.warn(`No profile found for user ${user.uid}`);
+                        setProfile(null);
+                    }
                     setLoading(false);
                 }, (error) => {
                     console.error("Error fetching user profile:", error);
-                    if (isMounted) setLoading(false);
-                });
-
-                return () => unsubscribeFirestore();
-            } else {
-                if (isMounted) {
-                    setUser(null);
                     setLoading(false);
+                });
+            } else {
+                setFirebaseUser(null);
+                setProfile(null);
+                if (unsubscribeFirestore) {
+                    unsubscribeFirestore();
+                    unsubscribeFirestore = null;
                 }
+                setLoading(false);
             }
         });
 
         return () => {
-            isMounted = false;
             unsubscribeAuth();
+            if (unsubscribeFirestore) unsubscribeFirestore();
         };
     }, []);
 
+    const role = profile?.role || null;
+
+    const hasRole = (requiredRoles: UserRole[]) => {
+        if (!role) return false;
+        return requiredRoles.includes(role);
+    };
+
+    const value = {
+        user: firebaseUser,
+        firebaseUser,
+        profile,
+        role,
+        loading,
+        hasRole
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading }}>
+        <AuthContext.Provider value={value}>
             {!loading && children}
         </AuthContext.Provider>
     );
 };
 
 export const useAuth = () => useContext(AuthContext);
+
+/**
+ * Utility to require a specific role in functions or logic.
+ * Throws an error if the role is not present.
+ */
+export const requireRole = (profile: UserProfile | null, requiredRoles: UserRole[]) => {
+    if (!profile || !profile.role || !requiredRoles.includes(profile.role)) {
+        throw new Error(`Permission Denied: Required one of ${requiredRoles.join(', ')}`);
+    }
+    return true;
+};

@@ -41,6 +41,8 @@ export interface Payment {
     date: Date | Timestamp;
     method: 'cash' | 'transfer' | 'card' | 'other';
     notes?: string;
+    destinationAccountId?: string;
+    financeTxId?: string;
 }
 
 export interface Invoice {
@@ -123,14 +125,17 @@ export interface FinanceSettings {
     otherInfo?: string;
 }
 
+export type UserRole = 'ADMIN' | 'ACCOUNTANT' | 'MANAGER' | 'STORES_APPROVER' | 'USER';
+
 export interface UserProfile {
     uid: string;
-    firstName: string;
-    lastName: string;
-    position: string;
+    displayName: string;
     email: string;
-    signatureUrl?: string;
+    role: UserRole;
+    active: boolean;
+    createdAt: Date | Timestamp;
     updatedAt: Date | Timestamp;
+    signatureUrl?: string;
 }
 
 export interface CreatorProfile {
@@ -139,6 +144,40 @@ export interface CreatorProfile {
     position: string;
     email: string;
     signatureUrl?: string;
+}
+
+export type RequestStatus =
+    | 'DRAFT'
+    | 'SUBMITTED'
+    | 'APPROVED_BY_ACCOUNTANT'
+    | 'REJECTED_BY_ACCOUNTANT'
+    | 'APPROVED_FINAL'
+    | 'REJECTED_BY_MANAGER'
+    | 'CANCELLED';
+
+export interface ApprovalTrailEntry {
+    stage: 'ACCOUNTANT' | 'MANAGER';
+    action: 'SUBMIT' | 'APPROVE' | 'REJECT' | 'CANCEL';
+    byUid: string;
+    byName: string;
+    at: Date | Timestamp;
+    note?: string;
+}
+
+export interface RequestWorkflow {
+    stage: 'ACCOUNTANT' | 'MANAGER' | 'DONE';
+    submittedAt: Date | Timestamp | null;
+    currentApproverRole: UserRole | 'NONE';
+}
+
+export interface BaseRequest {
+    status: RequestStatus;
+    workflow: RequestWorkflow;
+    submittedBy: {
+        uid: string;
+        name: string;
+    };
+    approvalTrail: ApprovalTrailEntry[];
 }
 
 export interface CatalogItem {

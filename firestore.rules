@@ -8,10 +8,35 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Helper function to check if user has superUser role in their profile
-    function isSuperUser() {
+    // Safely get user profile data
+    function getUserProfile() {
+      return get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data;
+    }
+
+    // Helper to check user role with safe exists() check
+    function hasRole(role) {
       return isAuthenticated() && 
-        get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.role == 'superUser';
+             exists(/databases/$(database)/documents/userProfiles/$(request.auth.uid)) &&
+             getUserProfile().role == role;
+    }
+
+    function isAdmin() { return hasRole('ADMIN'); }
+    function isManager() { return hasRole('MANAGER'); }
+    function isAccountant() { return hasRole('ACCOUNTANT'); }
+
+    // Logic Helpers
+    function isOwner(data) {
+      return isAuthenticated() && data.submittedBy.uid == request.auth.uid;
+    }
+
+    function isValidTransition(oldStatus, newStatus) {
+      return (oldStatus == 'DRAFT' && (newStatus == 'SUBMITTED' || newStatus == 'CANCELLED')) ||
+             (oldStatus == 'SUBMITTED' && (newStatus == 'APPROVED_BY_ACCOUNTANT' || newStatus == 'REJECTED_BY_ACCOUNTANT')) ||
+             (oldStatus == 'APPROVED_BY_ACCOUNTANT' && (newStatus == 'APPROVED_FINAL' || newStatus == 'REJECTED_BY_MANAGER'));
+    }
+
+    function coreFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
     }
 
     match /contacts/{document} {
@@ -44,18 +69,129 @@ service cloud.firestore {
 
     match /userProfiles/{userId} {
       allow read: if isAuthenticated();
-      // Allow users to update their own profile, OR super users to update any profile
-      allow write: if isAuthenticated() && (request.auth.uid == userId || isSuperUser());
+      // Allow users to update their own profile EXCEPT 'role', OR admins to update any field
+      allow write: if isAuthenticated() && (
+        (request.auth.uid == userId && coreFieldsUnchanged(['role'])) || 
+        isAdmin()
+      );
     }
 
     match /activities/{document} {
       allow read, create: if isAuthenticated();
       allow update: if isAuthenticated() && (resource.data.createdBy.uid == request.auth.uid);
-      allow delete: if isAuthenticated() && (resource.data.createdBy.uid == request.auth.uid || isSuperUser());
+      allow delete: if isAuthenticated() && (resource.data.createdBy.uid == request.auth.uid || isAdmin());
     }
 
     match /catalogItems/{document} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      // Prevent client-side stock updates
+      allow update: if isAuthenticated() && isAdmin() && coreFieldsUnchanged(['stock']);
+    }
+
+    match /accounts/{document} {
+      allow read: if isAuthenticated();
+      // Balance updates should happen via Cloud Functions.
+      allow write: if isAdmin() && coreFieldsUnchanged(['balance']);
+    }
+
+    match /financeAccounts/{document} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      // Protect balance from direct client write
+      allow update: if isAuthenticated() && (isAdmin() || coreFieldsUnchanged(['balance']));
+    }
+
+    match /financeTransactions/{document} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.status == 'DRAFT' &&
+                    request.resource.data.submittedBy.uid == request.auth.uid;
+      
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        (
+          // Only allow requester to Submit or Cancel from the client
+          (resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED' && isOwner(resource.data)) ||
+          (resource.data.status != 'CANCELLED' && request.resource.data.status == 'CANCELLED' && isOwner(resource.data)) ||
+          
+          // Allow editing other fields in DRAFT
+          (resource.data.status == 'DRAFT' && isOwner(resource.data) && request.resource.data.status == 'DRAFT')
+        )
+      ) && (
+        // Protect status and approval fields
+        coreFieldsUnchanged(['approvalTrail', 'workflow']) &&
+        (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['amount', 'sourceAccountId', 'targetAccountId', 'type', 'status']))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{document} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.status == 'DRAFT' &&
+                    request.resource.data.submittedBy.uid == request.auth.uid;
+      
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        (
+          // Only allow requester to Submit or Cancel from the client
+          (resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED' && isOwner(resource.data)) ||
+          (resource.data.status != 'CANCELLED' && request.resource.data.status == 'CANCELLED' && isOwner(resource.data)) ||
+          
+          // Allow editing other fields in DRAFT
+          (resource.data.status == 'DRAFT' && isOwner(resource.data) && request.resource.data.status == 'DRAFT')
+        )
+      ) && (
+        // Field Protection: Prevent client from touching approval fields or core fields after submission
+        coreFieldsUnchanged(['approvalTrail', 'workflow']) &&
+        (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['amount', 'accountId', 'type', 'category', 'status']))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /jobCards/{document} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.status == 'DRAFT' &&
+                    request.resource.data.submittedBy.uid == request.auth.uid;
+      
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        (
+          // Only allow requester to Submit or Cancel from the client
+          (resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED' && isOwner(resource.data)) ||
+          (resource.data.status != 'CANCELLED' && request.resource.data.status == 'CANCELLED' && isOwner(resource.data)) ||
+          
+          // Allow editing other fields in DRAFT
+          (resource.data.status == 'DRAFT' && isOwner(resource.data) && request.resource.data.status == 'DRAFT')
+        )
+      ) && (
+        // Field Protection: Prevent client from touching approval fields or core fields after submission
+        coreFieldsUnchanged(['approvalTrail', 'workflow', 'issuedMovementId', 'returnedMovementIds']) &&
+        (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['materials', 'totalCost', 'projectName', 'clientId', 'status']))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /inventoryItems/{document} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      // Enforce non-negative stock and protect SKU/Name from non-admins
+      allow update: if isAuthenticated() && 
+                    request.resource.data.onHandQty >= 0 &&
+                    (isAdmin() || coreFieldsUnchanged(['sku', 'name', 'unit']));
+    }
+
+    match /inventoryMovements/{document} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.createdBy.uid == request.auth.uid;
+      // Ledger entries are immutable once created
+      allow update, delete: if false;
     }
 
     match /inquiries/{document} {

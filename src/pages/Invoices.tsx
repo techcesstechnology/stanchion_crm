@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { InvoiceService } from "@/services/invoiceService";
 import { ContactService } from "@/services/contactService";
 import { SettingsService } from "@/services/settingsService";
 import { UserService } from "@/services/userService";
+import { FinanceLedgerService } from "@/services/financeLedgerService";
 import { Invoice, Contact, InvoiceItem, Payment, UserProfile } from "@/types";
+import { FinanceAccount } from "@/types/financeLedger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +27,7 @@ export default function Invoices() {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [contacts, setContacts] = useState<Contact[]>([]);
+    const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
     const [loading, setLoading] = useState(true);
 
 
@@ -48,6 +51,7 @@ export default function Invoices() {
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card' | 'other'>('transfer');
     const [paymentNotes, setPaymentNotes] = useState("");
+    const [destinationAccountId, setDestinationAccountId] = useState("");
     const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
         const saved = localStorage.getItem('invoices_sort');
         return saved ? JSON.parse(saved) : { field: 'date', direction: 'desc' };
@@ -64,13 +68,14 @@ export default function Invoices() {
     ];
 
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             setLoading(true);
-            const promises: Promise<any>[] = [
+            const promises = [
                 InvoiceService.getInvoices(),
-                ContactService.getContacts()
-            ];
+                ContactService.getContacts(),
+                FinanceLedgerService.getAccounts()
+            ] as const;
 
             if (user) {
                 promises.push(UserService.getUserProfile(user.uid));
@@ -79,8 +84,9 @@ export default function Invoices() {
             const results = await Promise.all(promises);
             setInvoices(results[0]);
             setContacts(results[1]);
-            if (user && results[2]) {
-                setUserProfile(results[2]);
+            setAccounts(results[2]);
+            if (user && results[3]) {
+                setUserProfile(results[3]);
             }
         } catch (error) {
             console.error(error);
@@ -88,11 +94,11 @@ export default function Invoices() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         fetchData();
-    }, [user]);
+    }, [fetchData]);
 
     // Handle incoming quote conversion or edit request
     useEffect(() => {
@@ -136,10 +142,10 @@ export default function Invoices() {
         setClientId(invoice.clientId);
         setItems(invoice.items);
 
-        const safeDate = (date: any) => {
+        const safeDate = (date: Date | Timestamp | string | null) => {
             if (!date) return new Date();
-            if (date.seconds) return new Date(date.seconds * 1000);
-            return new Date(date);
+            if (typeof date === 'object' && 'seconds' in date) return new Date(date.seconds * 1000);
+            return new Date(date as string);
         };
 
         setDate(safeDate(invoice.date).toISOString().split('T')[0]);
@@ -155,6 +161,7 @@ export default function Invoices() {
         setPaymentDate(new Date().toISOString().split('T')[0]);
         setPaymentMethod('transfer');
         setPaymentNotes("");
+        setDestinationAccountId("");
         setIsPaymentModalOpen(true);
     };
 
@@ -190,7 +197,8 @@ export default function Invoices() {
                 amount: paymentAmount,
                 date: new Date(paymentDate),
                 method: paymentMethod,
-                notes: paymentNotes
+                notes: paymentNotes,
+                destinationAccountId: destinationAccountId
             };
 
             const currentPayments = selectedInvoice.payments || [];
@@ -220,9 +228,10 @@ export default function Invoices() {
                 invoiceNumber: selectedInvoice.number,
                 clientName: selectedInvoice.clientName,
                 clientId: selectedInvoice.clientId,
+                destinationAccountId: destinationAccountId,
                 recordedBy: userProfile ? {
                     uid: userProfile.uid,
-                    name: `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim(),
+                    name: userProfile.displayName,
                     email: userProfile.email
                 } : null
             });
@@ -232,7 +241,7 @@ export default function Invoices() {
             fetchData();
         } catch (error) {
             console.error(error);
-            toast.error("Failed to record payment");
+            toast.error(error instanceof Error ? error.message : "Failed to record payment");
         } finally {
             setSubmitting(false);
         }
@@ -266,7 +275,7 @@ export default function Invoices() {
             };
 
             if (editingId) {
-                const updates = { ...invoiceData } as any;
+                const updates: Partial<Invoice> = { ...invoiceData };
 
                 // Always update/attach current user profile if available
                 if (userProfile) {
@@ -483,6 +492,7 @@ export default function Invoices() {
                                     <select
                                         id="discountType"
                                         className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        title="Discount Type"
                                         value={discountType}
                                         onChange={(e) => setDiscountType(e.target.value as 'percent' | 'amount')}
                                     >
@@ -563,6 +573,7 @@ export default function Invoices() {
                         <Label htmlFor="method">Payment Method *</Label>
                         <select
                             id="method"
+                            title="Payment Method"
                             className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             value={paymentMethod}
                             onChange={(e) => setPaymentMethod(e.target.value as any)}
@@ -571,6 +582,23 @@ export default function Invoices() {
                             <option value="cash">Cash</option>
                             <option value="card">Card</option>
                             <option value="other">Other</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="destinationAccount">Destination Account *</Label>
+                        <select
+                            id="destinationAccount"
+                            className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Destination Account"
+                            value={destinationAccountId}
+                            onChange={(e) => setDestinationAccountId(e.target.value)}
+                            required
+                        >
+                            <option value="">Select an account...</option>
+                            {accounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
+                            ))}
                         </select>
                     </div>
 

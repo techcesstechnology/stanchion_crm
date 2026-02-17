@@ -29,7 +29,10 @@ export default function CatalogSettings() {
     const [formData, setFormData] = useState({
         name: "",
         description: "",
-        price: 0
+        price: 0,
+        stock: 0,
+        category: "",
+        unit: ""
     });
     const [saving, setSaving] = useState(false);
 
@@ -61,7 +64,7 @@ export default function CatalogSettings() {
 
     const handleAddNew = () => {
         setEditingItem(null);
-        setFormData({ name: "", description: "", price: 0 });
+        setFormData({ name: "", description: "", price: 0, stock: 0, category: "", unit: "" });
         setIsModalOpen(true);
     };
 
@@ -70,7 +73,10 @@ export default function CatalogSettings() {
         setFormData({
             name: item.name,
             description: item.description || "",
-            price: item.price
+            price: item.price,
+            stock: item.stock || 0,
+            category: item.category || "",
+            unit: item.unit || ""
         });
         setIsModalOpen(true);
     };
@@ -97,14 +103,20 @@ export default function CatalogSettings() {
                 await CatalogService.updateItem(editingItem.id, {
                     name: formData.name,
                     description: formData.description,
-                    price: Number(formData.price)
+                    price: Number(formData.price),
+                    stock: Number(formData.stock),
+                    category: formData.category,
+                    unit: formData.unit
                 });
                 toast.success("Item updated successfully");
             } else {
                 await CatalogService.addItem({
                     name: formData.name,
                     description: formData.description,
-                    price: Number(formData.price)
+                    price: Number(formData.price),
+                    stock: Number(formData.stock),
+                    category: formData.category,
+                    unit: formData.unit
                 });
                 toast.success("Item added successfully");
             }
@@ -154,8 +166,9 @@ export default function CatalogSettings() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Name</TableHead>
-                                <TableHead>Description</TableHead>
+                                <TableHead>Category</TableHead>
                                 <TableHead className="text-right">Price</TableHead>
+                                <TableHead className="text-right">Stock</TableHead>
                                 <TableHead className="w-[100px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -175,12 +188,16 @@ export default function CatalogSettings() {
                             ) : (
                                 filteredItems.map((item) => (
                                     <TableRow key={item.id}>
-                                        <TableCell className="font-medium">{item.name}</TableCell>
-                                        <TableCell className="text-muted-foreground line-clamp-1">
-                                            {item.description}
+                                        <TableCell className="font-medium">
+                                            <div>{item.name}</div>
+                                            <div className="text-[10px] text-muted-foreground">{item.description}</div>
                                         </TableCell>
+                                        <TableCell>{item.category || "N/A"}</TableCell>
                                         <TableCell className="text-right">
                                             ${item.price.toFixed(2)}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            {item.stock} {item.unit}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex justify-end gap-2">
@@ -236,18 +253,52 @@ export default function CatalogSettings() {
                         />
                     </div>
 
-                    <div className="space-y-2">
-                        <Label htmlFor="price">Unit Price *</Label>
-                        <div className="relative">
-                            <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="category">Category</Label>
                             <Input
-                                id="price"
+                                id="category"
+                                value={formData.category}
+                                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                placeholder="e.g. Services"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="unit">Unit</Label>
+                            <Input
+                                id="unit"
+                                value={formData.unit}
+                                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                                placeholder="e.g. hour, pcs"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="price">Unit Price *</Label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                                <Input
+                                    id="price"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="pl-7"
+                                    value={formData.price}
+                                    onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="stock">Initial Stock *</Label>
+                            <Input
+                                id="stock"
                                 type="number"
                                 min="0"
-                                step="0.01"
-                                className="pl-7"
-                                value={formData.price}
-                                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                                value={formData.stock}
+                                onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
                                 required
                             />
                         </div>
