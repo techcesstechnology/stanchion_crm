@@ -130,6 +130,10 @@ export type UserRole = 'ADMIN' | 'ACCOUNTANT' | 'MANAGER' | 'STORES_APPROVER' | 
 export interface UserProfile {
     uid: string;
     displayName: string;
+    firstName?: string;
+    lastName?: string;
+    position?: string;
+    phoneNumber?: string;
     email: string;
     role: UserRole;
     active: boolean;
@@ -178,6 +182,13 @@ export interface BaseRequest {
         name: string;
     };
     approvalTrail: ApprovalTrailEntry[];
+    pdfGenerated?: boolean;
+    approvalLetter?: {
+        refNo: string;
+        storagePath: string;
+        url: string;
+        generatedAt: Date | Timestamp;
+    };
 }
 
 export interface CatalogItem {

@@ -4,9 +4,9 @@ import { InvoiceService } from "@/services/invoiceService";
 import { ContactService } from "@/services/contactService";
 import { SettingsService } from "@/services/settingsService";
 import { UserService } from "@/services/userService";
-import { FinanceLedgerService } from "@/services/financeLedgerService";
+import { FinanceService } from "@/services/financeService";
 import { Invoice, Contact, InvoiceItem, Payment, UserProfile } from "@/types";
-import { FinanceAccount } from "@/types/financeLedger";
+import { AccountBalance } from "@/types/finance";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ export default function Invoices() {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [contacts, setContacts] = useState<Contact[]>([]);
-    const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
+    const [accounts, setAccounts] = useState<AccountBalance[]>([]);
     const [loading, setLoading] = useState(true);
 
 
@@ -49,7 +49,6 @@ export default function Invoices() {
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [paymentAmount, setPaymentAmount] = useState<number>(0);
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
-    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card' | 'other'>('transfer');
     const [paymentNotes, setPaymentNotes] = useState("");
     const [destinationAccountId, setDestinationAccountId] = useState("");
     const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
@@ -71,22 +70,18 @@ export default function Invoices() {
     const fetchData = useCallback(async () => {
         try {
             setLoading(true);
-            const promises = [
+            const [invoicesData, contactsData, accountsData, profileData] = await Promise.all([
                 InvoiceService.getInvoices(),
                 ContactService.getContacts(),
-                FinanceLedgerService.getAccounts()
-            ] as const;
+                FinanceService.getAccounts(),
+                user ? UserService.getUserProfile(user.uid) : Promise.resolve(null)
+            ]);
 
-            if (user) {
-                promises.push(UserService.getUserProfile(user.uid));
-            }
-
-            const results = await Promise.all(promises);
-            setInvoices(results[0]);
-            setContacts(results[1]);
-            setAccounts(results[2]);
-            if (user && results[3]) {
-                setUserProfile(results[3]);
+            setInvoices(invoicesData);
+            setContacts(contactsData);
+            setAccounts(accountsData);
+            if (profileData) {
+                setUserProfile(profileData);
             }
         } catch (error) {
             console.error(error);
@@ -142,10 +137,10 @@ export default function Invoices() {
         setClientId(invoice.clientId);
         setItems(invoice.items);
 
-        const safeDate = (date: Date | Timestamp | string | null) => {
+        const safeDate = (date: any) => {
             if (!date) return new Date();
             if (typeof date === 'object' && 'seconds' in date) return new Date(date.seconds * 1000);
-            return new Date(date as string);
+            return new Date(date);
         };
 
         setDate(safeDate(invoice.date).toISOString().split('T')[0]);
@@ -159,7 +154,6 @@ export default function Invoices() {
         setSelectedInvoice(invoice);
         setPaymentAmount(getRemainingBalance(invoice));
         setPaymentDate(new Date().toISOString().split('T')[0]);
-        setPaymentMethod('transfer');
         setPaymentNotes("");
         setDestinationAccountId("");
         setIsPaymentModalOpen(true);
@@ -192,11 +186,15 @@ export default function Invoices() {
 
         setSubmitting(true);
         try {
+            // Find account to get its type for the method
+            const selectedAccount = accounts.find(a => a.id === destinationAccountId);
+            const method: Payment['method'] = selectedAccount?.type === 'cash' ? 'cash' : 'transfer';
+
             const newPayment: Payment = {
                 id: Date.now().toString(),
                 amount: paymentAmount,
                 date: new Date(paymentDate),
-                method: paymentMethod,
+                method: method,
                 notes: paymentNotes,
                 destinationAccountId: destinationAccountId
             };
@@ -222,7 +220,7 @@ export default function Invoices() {
             await InvoiceService.addPayment({
                 amount: paymentAmount,
                 date: new Date(paymentDate),
-                method: paymentMethod,
+                method: selectedAccount?.type === 'cash' ? 'cash' : 'transfer',
                 notes: paymentNotes,
                 invoiceId: selectedInvoice.id,
                 invoiceNumber: selectedInvoice.number,
@@ -281,7 +279,7 @@ export default function Invoices() {
                 if (userProfile) {
                     updates.createdBy = {
                         uid: userProfile.uid,
-                        name: `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || 'Internal User',
+                        name: userProfile.displayName || `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || 'Internal User',
                         position: userProfile.position || '',
                         email: userProfile.email || '',
                         signatureUrl: userProfile.signatureUrl || ''
@@ -551,7 +549,7 @@ export default function Invoices() {
                                 step="0.01"
                                 max={selectedInvoice ? getRemainingBalance(selectedInvoice) : 0}
                                 value={paymentAmount}
-                                onChange={(e) => setPaymentAmount(parseFloat(e.target.value))}
+                                onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
                                 required
                                 className="h-11"
                             />
@@ -567,22 +565,6 @@ export default function Invoices() {
                                 className="h-11"
                             />
                         </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="method">Payment Method *</Label>
-                        <select
-                            id="method"
-                            title="Payment Method"
-                            className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={paymentMethod}
-                            onChange={(e) => setPaymentMethod(e.target.value as any)}
-                        >
-                            <option value="transfer">Bank Transfer</option>
-                            <option value="cash">Cash</option>
-                            <option value="card">Card</option>
-                            <option value="other">Other</option>
-                        </select>
                     </div>
 
                     <div className="space-y-2">

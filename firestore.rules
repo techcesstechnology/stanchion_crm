@@ -69,11 +69,14 @@ service cloud.firestore {
 
     match /userProfiles/{userId} {
       allow read: if isAuthenticated();
+      // Allow users to create their own profile during registration
+      allow create: if isAuthenticated() && request.auth.uid == userId;
       // Allow users to update their own profile EXCEPT 'role', OR admins to update any field
-      allow write: if isAuthenticated() && (
+      allow update: if isAuthenticated() && (
         (request.auth.uid == userId && coreFieldsUnchanged(['role'])) || 
         isAdmin()
       );
+      allow delete: if isAdmin();
     }
 
     match /activities/{document} {
@@ -85,8 +88,8 @@ service cloud.firestore {
     match /catalogItems/{document} {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();
-      // Prevent client-side stock updates
-      allow update: if isAuthenticated() && isAdmin() && coreFieldsUnchanged(['stock']);
+      // Allow admins to update stock manually; prevent other users from touching stock
+      allow update: if isAuthenticated() && (isAdmin() || coreFieldsUnchanged(['stock']));
     }
 
     match /accounts/{document} {
@@ -105,7 +108,7 @@ service cloud.firestore {
     match /financeTransactions/{document} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && 
-                    request.resource.data.status == 'DRAFT' &&
+                    (request.resource.data.status == 'DRAFT' || request.resource.data.status == 'SUBMITTED') &&
                     request.resource.data.submittedBy.uid == request.auth.uid;
       
       allow update: if isAuthenticated() && (
@@ -119,8 +122,8 @@ service cloud.firestore {
           (resource.data.status == 'DRAFT' && isOwner(resource.data) && request.resource.data.status == 'DRAFT')
         )
       ) && (
-        // Protect status and approval fields
-        coreFieldsUnchanged(['approvalTrail', 'workflow']) &&
+        // Protect status and approval fields EXCEPT during submission
+        (resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED' || coreFieldsUnchanged(['approvalTrail', 'workflow'])) &&
         (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['amount', 'sourceAccountId', 'targetAccountId', 'type', 'status']))
       );
       
@@ -130,7 +133,7 @@ service cloud.firestore {
     match /transactions/{document} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && 
-                    request.resource.data.status == 'DRAFT' &&
+                    (request.resource.data.status == 'DRAFT' || request.resource.data.status == 'SUBMITTED') &&
                     request.resource.data.submittedBy.uid == request.auth.uid;
       
       allow update: if isAuthenticated() && (
@@ -145,7 +148,7 @@ service cloud.firestore {
         )
       ) && (
         // Field Protection: Prevent client from touching approval fields or core fields after submission
-        coreFieldsUnchanged(['approvalTrail', 'workflow']) &&
+        ((resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED') || coreFieldsUnchanged(['approvalTrail', 'workflow'])) &&
         (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['amount', 'accountId', 'type', 'category', 'status']))
       );
       
@@ -155,7 +158,7 @@ service cloud.firestore {
     match /jobCards/{document} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && 
-                    request.resource.data.status == 'DRAFT' &&
+                    (request.resource.data.status == 'DRAFT' || request.resource.data.status == 'SUBMITTED') &&
                     request.resource.data.submittedBy.uid == request.auth.uid;
       
       allow update: if isAuthenticated() && (
@@ -170,7 +173,8 @@ service cloud.firestore {
         )
       ) && (
         // Field Protection: Prevent client from touching approval fields or core fields after submission
-        coreFieldsUnchanged(['approvalTrail', 'workflow', 'issuedMovementId', 'returnedMovementIds']) &&
+        coreFieldsUnchanged(['issuedMovementId', 'returnedMovementIds']) &&
+        ((resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED') || coreFieldsUnchanged(['approvalTrail', 'workflow'])) &&
         (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['materials', 'totalCost', 'projectName', 'clientId', 'status']))
       );
       

@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
+const { v4: uuidv4 } = require("uuid");
 
 /**
  * Cloud Function: Generate Approval Letter on Finance Transaction or Job Card Final Approval
@@ -10,25 +11,32 @@ exports.generateApprovalLetter = functions.firestore
     .document('{collection}/{docId}')
     .onUpdate(async (change, context) => {
         const { collection, docId } = context.params;
-
-        // Only process financeTransactions and jobCards
-        if (collection !== 'financeTransactions' && collection !== 'jobCards') {
-            return null;
-        }
-
         const newData = change.after.data();
         const oldData = change.before.data();
 
-        // Only trigger when status changes to APPROVED_FINAL
-        if (newData.status !== 'APPROVED_FINAL' || oldData.status === 'APPROVED_FINAL') {
+        console.log(`Triggered generateApprovalLetter for ${collection}/${docId}. Status: ${oldData.status} -> ${newData.status}`);
+
+        // Only process transactions and jobCards
+        if (collection !== 'transactions' && collection !== 'jobCards') {
             return null;
         }
 
-        // Idempotency: Skip if approval letter already exists
-        if (newData.approvalLetter && newData.approvalLetter.storagePath) {
-            console.log(`Approval letter already exists for ${collection}/${docId}`);
+        // Logic: Trigger if status IS APPROVED_FINAL AND (it just changed OR the letter is missing)
+        const isApproved = newData.status === 'APPROVED_FINAL';
+        const justApproved = isApproved && oldData.status !== 'APPROVED_FINAL';
+        const letterMissing = !newData.approvalLetter || !newData.approvalLetter.storagePath;
+
+        if (!isApproved) {
+            console.log(`Skipping: Status is ${newData.status}`);
             return null;
         }
+
+        if (!justApproved && !letterMissing) {
+            console.log(`Skipping: Already approved and letter exists.`);
+            return null;
+        }
+
+        console.log(`Proceeding with PDF generation for ${collection}/${docId}. JustApproved: ${justApproved}, LetterMissing: ${letterMissing}`);
 
         try {
             const db = admin.firestore();
@@ -37,9 +45,11 @@ exports.generateApprovalLetter = functions.firestore
             // Generate reference number: APP-YYYYMMDD-TYPE-SHORT_ID
             const now = new Date();
             const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-            const typeStr = collection === 'financeTransactions' ? 'FIN' : 'JOB';
+            const typeStr = collection === 'transactions' ? 'FIN' : 'JOB';
             const shortId = docId.slice(0, 8).toUpperCase();
             const refNo = `APP-${dateStr}-${typeStr}-${shortId}`;
+
+            console.log(`Generating PDF for RefNo: ${refNo}`);
 
             // Create PDF document
             const pdfDoc = await PDFDocument.create();
@@ -86,7 +96,7 @@ exports.generateApprovalLetter = functions.firestore
             });
             yPos -= 25;
 
-            if (collection === 'financeTransactions') {
+            if (collection === 'transactions') {
                 page.drawText(`Type: ${newData.type}`, { x: 70, y: yPos, size: 11, font: helvetica });
                 yPos -= 20;
                 page.drawText(`Amount: ${newData.currency} ${newData.amount.toFixed(2)}`, { x: 70, y: yPos, size: 11, font: helvetica });
@@ -152,10 +162,13 @@ exports.generateApprovalLetter = functions.firestore
 
             // Save PDF
             const pdfBytes = await pdfDoc.save();
+            console.log(`PDF saved to memory, size: ${pdfBytes.length} bytes`);
 
             // Upload to Storage
             const storagePath = `approval_letters/${collection}/${docId}.pdf`;
             const file = storage.file(storagePath);
+
+            console.log(`Uploading to: ${storagePath}`);
             await file.save(Buffer.from(pdfBytes), {
                 metadata: {
                     contentType: 'application/pdf',
@@ -165,10 +178,21 @@ exports.generateApprovalLetter = functions.firestore
                     }
                 }
             });
+            console.log(`Upload complete.`);
 
-            // Make the file publicly readable
-            await file.makePublic();
-            const publicUrl = `https://storage.googleapis.com/${storage.name}/${storagePath}`;
+            // Set a download token on the file metadata
+            const downloadToken = uuidv4();
+            await file.setMetadata({
+                metadata: {
+                    firebaseStorageDownloadTokens: downloadToken
+                }
+            });
+            console.log(`Download token set.`);
+
+            const bucketName = storage.name;
+            const encodedPath = encodeURIComponent(storagePath);
+            const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+            console.log(`Download URL generated: ${publicUrl.substring(0, 80)}...`);
 
             // Update Firestore document
             await db.collection(collection).doc(docId).update({
@@ -181,7 +205,7 @@ exports.generateApprovalLetter = functions.firestore
                 pdfGenerated: true
             });
 
-            console.log(`Approval letter generated for ${collection}/${docId}: ${publicUrl}`);
+            console.log(`Approval letter successfully recorded for ${collection}/${docId}: ${publicUrl}`);
             return { success: true, url: publicUrl };
 
         } catch (error) {
@@ -190,7 +214,8 @@ exports.generateApprovalLetter = functions.firestore
             // Mark as failed for retry
             await admin.firestore().collection(collection).doc(docId).update({
                 pdfGenerated: false,
-                pdfError: error.message
+                pdfError: error.message,
+                pdfErrorAt: admin.firestore.FieldValue.serverTimestamp()
             });
 
             throw error;

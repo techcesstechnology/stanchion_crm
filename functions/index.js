@@ -20,7 +20,7 @@ exports.createAdminUser = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("permission-denied", "Only Administrators can create new accounts.");
     }
 
-    const { email, password, role, displayName, firstName, lastName } = data;
+    const { email, password, role, displayName, firstName, lastName, position, phoneNumber } = data;
 
     if (!email || !password) {
         throw new functions.https.HttpsError("invalid-argument", "Email and password are required.");
@@ -32,6 +32,7 @@ exports.createAdminUser = functions.https.onCall(async (data, context) => {
             email,
             password,
             displayName: displayName || `${firstName} ${lastName}`,
+            phoneNumber: phoneNumber || undefined
         });
 
         // 3. Create User Profile in Firestore
@@ -39,6 +40,10 @@ exports.createAdminUser = functions.https.onCall(async (data, context) => {
             uid: user.uid,
             email: user.email,
             displayName: displayName || `${firstName} ${lastName}` || "",
+            firstName: firstName || "",
+            lastName: lastName || "",
+            position: position || "",
+            phoneNumber: phoneNumber || "",
             role: role || "USER",
             active: true,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -233,79 +238,7 @@ exports.onTransactionStatusUpdate = functions.firestore
  * Triggered when a Job Card status changes to 'approved'.
  * Deducts stock from catalog items and records a pending transaction.
  */
-exports.onJobCardApproved = functions.firestore
-    .document("jobCards/{jobId}")
-    .onUpdate(async (change, context) => {
-        const newValue = change.after.data();
-        const previousValue = change.before.data();
-
-        // Primary approval trigger
-        if (newValue.status === 'APPROVED_FINAL' && previousValue.status !== 'APPROVED_FINAL') {
-            const jobData = newValue;
-            const db = admin.firestore();
-
-            // 1. Deduct Stock from Catalog (Skip if already handled by ledger system)
-            if (jobData.materials && jobData.materials.length > 0 && !jobData.issuedMovementId) {
-                const batch = db.batch();
-                for (const mat of jobData.materials) {
-                    if (mat.id) {
-                        const matRef = db.collection("catalogItems").doc(mat.id);
-                        batch.update(matRef, {
-                            stock: admin.firestore.FieldValue.increment(-mat.quantity),
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                }
-                await batch.commit();
-            }
-
-            // 2. Record Financial Transaction (Remains Pending for final Finance approval)
-            // Try to find the first cash account to charge
-            const accountsSnap = await db.collection("accounts").where("type", "==", "cash").limit(1).get();
-            let targetAccountId = "";
-
-            if (!accountsSnap.empty) {
-                targetAccountId = accountsSnap.docs[0].id;
-            } else {
-                // Fallback to any account if no cash account found
-                const anyAccSnap = await db.collection("accounts").limit(1).get();
-                if (!anyAccSnap.empty) {
-                    targetAccountId = anyAccSnap.docs[0].id;
-                }
-            }
-
-            if (targetAccountId) {
-                await db.collection("transactions").add({
-                    accountId: targetAccountId,
-                    amount: jobData.totalCost,
-                    type: 'expense',
-                    category: 'Project Materials',
-                    description: `Job Card Approval: ${jobData.projectName}`,
-                    referenceId: context.params.jobId,
-                    status: 'APPROVED_FINAL',
-                    date: admin.firestore.FieldValue.serverTimestamp(),
-                    workflow: {
-                        stage: 'DONE',
-                        submittedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        currentApproverRole: 'NONE'
-                    },
-                    submittedBy: {
-                        uid: "system",
-                        name: "JobCard System"
-                    },
-                    approvalTrail: [{
-                        stage: 'MANAGER',
-                        action: 'APPROVE',
-                        byUid: 'system',
-                        byName: 'JobCard System',
-                        at: new Date(),
-                        note: 'Auto-generated from Approved Job Card'
-                    }]
-                });
-            }
-        }
-        return null;
-    });
+// 2. Record Financial Transaction (Skipped or handled elsewhere)
 
 /**
  * Callable function to approve a request (Stage 1 or Stage 2).
@@ -369,7 +302,7 @@ exports.approveRequest = functions.https.onCall(async (data, context) => {
                     const itemsToIssue = [];
 
                     for (const mat of materials) {
-                        const itemRef = db.collection("inventoryItems").doc(mat.id);
+                        const itemRef = db.collection("catalogItems").doc(mat.id);
                         const itemSnap = await transaction.get(itemRef);
 
                         if (!itemSnap.exists) {
@@ -377,18 +310,18 @@ exports.approveRequest = functions.https.onCall(async (data, context) => {
                         }
 
                         const itemData = itemSnap.data();
-                        if (itemData.onHandQty < mat.quantity) {
-                            throw new functions.https.HttpsError("failed-precondition", `Insufficient stock for ${mat.name}. Available: ${itemData.onHandQty}, Required: ${mat.quantity}`);
+                        if (itemData.stock < mat.quantity) {
+                            throw new functions.https.HttpsError("failed-precondition", `Insufficient stock for ${mat.name}. Available: ${itemData.stock}, Required: ${mat.quantity}`);
                         }
 
-                        itemsToIssue.push({ ref: itemRef, currentQty: itemData.onHandQty, requestedQty: mat.quantity, itemId: mat.id });
+                        itemsToIssue.push({ ref: itemRef, currentQty: itemData.stock, requestedQty: mat.quantity, itemId: mat.id });
                     }
 
                     if (itemsToIssue.length > 0) {
                         // 1. Deduct stock
                         for (const item of itemsToIssue) {
                             transaction.update(item.ref, {
-                                onHandQty: item.currentQty - item.requestedQty,
+                                stock: item.currentQty - item.requestedQty,
                                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
                             });
                         }
@@ -591,7 +524,7 @@ exports.processReturn = functions.https.onCall(async (data, context) => {
             // 4. Process Inventory Returns
             const itemRefsToUpdate = [];
             for (const item of items) {
-                const itemRef = db.collection("inventoryItems").doc(item.itemId);
+                const itemRef = db.collection("catalogItems").doc(item.itemId);
                 const itemSnap = await transaction.get(itemRef);
 
                 if (!itemSnap.exists) {
@@ -601,14 +534,14 @@ exports.processReturn = functions.https.onCall(async (data, context) => {
                 const itemData = itemSnap.data();
                 itemRefsToUpdate.push({
                     ref: itemRef,
-                    newQty: itemData.onHandQty + item.qty
+                    newQty: itemData.stock + item.qty
                 });
             }
 
             // 5. Apply Updates
             for (const update of itemRefsToUpdate) {
                 transaction.update(update.ref, {
-                    onHandQty: update.newQty,
+                    stock: update.newQty,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
@@ -639,3 +572,105 @@ exports.processReturn = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("internal", error.message);
     }
 });
+
+exports.manualPromoteUser = functions.https.onRequest(async (req, res) => {
+    const email = req.query.email || "faraimufambisi@gmail.com";
+
+    try {
+        const user = await admin.auth().getUserByEmail(email);
+        const userId = user.uid;
+
+        await admin.auth().setCustomUserClaims(userId, { admin: true });
+
+        await admin.firestore().collection("userProfiles").doc(userId).set({
+            uid: userId,
+            email: user.email,
+            displayName: user.displayName || email.split('@')[0],
+            role: 'ADMIN',
+            active: true,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        res.status(200).send(`Successfully promoted ${email} to ADMIN.`);
+    } catch (error) {
+        console.error("Manual promotion failed:", error);
+        res.status(500).send(`Failed to promote: ${error.message}`);
+    }
+});
+
+exports.bootstrapAccounts = functions.https.onRequest(async (req, res) => {
+    try {
+        const accountsRef = admin.firestore().collection("accounts");
+        const snapshot = await accountsRef.get();
+
+        if (!snapshot.empty) {
+            return res.status(200).send("Accounts already exist. Skipping bootstrap.");
+        }
+
+        const batch = admin.firestore().batch();
+
+        const accounts = [
+            { name: "Bank Account", type: "bank", balance: 0, currency: "USD" },
+            { name: "EcoCash", type: "ecocash", balance: 0, currency: "USD" },
+            { name: "Cash", type: "cash", balance: 0, currency: "USD" }
+        ];
+
+        accounts.forEach(acc => {
+            const docRef = accountsRef.doc();
+            batch.set(docRef, {
+                ...acc,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        await batch.commit();
+        res.status(200).send("Financial accounts (Bank, EcoCash, Cash) initialized successfully.");
+    } catch (error) {
+        console.error("Bootstrap failed:", error);
+        res.status(500).send(`Failed to bootstrap: ${error.message}`);
+    }
+});
+
+exports.regenerateApprovalLetter = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    // Check if admin
+    const profileSnap = await admin.firestore().collection("userProfiles").doc(context.auth.uid).get();
+    if (!profileSnap.exists || profileSnap.data().role !== 'ADMIN') {
+        throw new functions.https.HttpsError("permission-denied", "Admin ONLY.");
+    }
+
+    const { type, id } = data;
+    const collection = type === 'transaction' ? 'transactions' : (type === 'jobCard' ? 'jobCards' : null);
+    if (!collection) throw new functions.https.HttpsError("invalid-argument", "Invalid type.");
+
+    const db = admin.firestore();
+    await db.collection(collection).doc(id).update({
+        triggerRetryAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, message: `Update triggered for ${collection}/${id}` };
+});
+
+exports.triggerPDF = functions.https.onRequest(async (req, res) => {
+    const { type, id } = req.query;
+    if (!type || !id) return res.status(400).send("Type and ID required.");
+
+    const collection = type === 'transaction' ? 'transactions' : (type === 'jobCard' ? 'jobCards' : null);
+    if (!collection) return res.status(400).send("Invalid type.");
+
+    try {
+        const db = admin.firestore();
+        await db.collection(collection).doc(id).update({
+            manualTriggerAt: admin.firestore.FieldValue.serverTimestamp(),
+            approvalLetter: admin.firestore.FieldValue.delete(),
+            pdfGenerated: admin.firestore.FieldValue.delete(),
+            pdfError: admin.firestore.FieldValue.delete()
+        });
+        res.status(200).send(`Successfully triggered update for ${collection}/${id}`);
+    } catch (e) {
+        res.status(500).send(`Error: ${e.message}`);
+    }
+});
+

@@ -580,7 +580,7 @@ const drawFooter = async (doc: jsPDF, y: number, companySettings?: CompanySettin
 
     // COLUMN 3: Signatory
     const finalSigner = signerProfile ? {
-        name: `${signerProfile.firstName || ''} ${signerProfile.lastName || ''}`.trim(),
+        name: signerProfile.displayName || `${signerProfile.firstName || ''} ${signerProfile.lastName || ''}`.trim(),
         position: signerProfile.position,
         signatureUrl: signerProfile.signatureUrl
     } : creator;

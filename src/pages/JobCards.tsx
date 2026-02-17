@@ -25,7 +25,8 @@ import {
     Trash2,
     ShoppingCart,
     User,
-    Package
+    Package,
+    FileDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -265,9 +266,24 @@ export default function JobCards() {
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-2 text-xs text-slate-400 font-bold uppercase tracking-wider pl-1">
-                                        <Package className="w-3.5 h-3.5" />
                                         {card.materials?.length || 0} Materials Allocated
                                     </div>
+
+                                    {card.status === 'APPROVED_FINAL' && card.approvalLetter?.url && (
+                                        <div className="pt-2">
+                                            <Button
+                                                variant="outline"
+                                                className="w-full gap-2 border-green-200 text-green-700 hover:bg-green-50 dark:hover:bg-green-900/10 text-xs font-bold"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    window.open(card.approvalLetter?.url, '_blank');
+                                                }}
+                                            >
+                                                <FileDown className="w-3.5 h-3.5" />
+                                                Download Approval Letter
+                                            </Button>
+                                        </div>
+                                    )}
 
                                     {(card.status === 'SUBMITTED' && role === 'ACCOUNTANT') && (
                                         <div className="pt-2 flex gap-2">

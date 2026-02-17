@@ -1,6 +1,6 @@
 import { db, storage } from "@/lib/firebase";
 import { UserProfile } from "@/types";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, getDocs, query, orderBy } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const USERS_COLLECTION = "userProfiles";
@@ -17,6 +17,17 @@ export const UserService = {
             } as UserProfile;
         }
         return null;
+    },
+
+    getAllUsers: async (): Promise<UserProfile[]> => {
+        const usersRef = collection(db, USERS_COLLECTION);
+        const q = query(usersRef, orderBy("createdAt", "desc"));
+        const querySnapshot = await getDocs(q);
+
+        return querySnapshot.docs.map(doc => ({
+            uid: doc.id,
+            ...doc.data()
+        })) as UserProfile[];
     },
 
     updateUserProfile: async (uid: string, data: Partial<UserProfile>) => {
