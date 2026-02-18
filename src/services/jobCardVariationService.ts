@@ -37,7 +37,7 @@ export const JobCardVariationService = {
             transaction.set(variationRef, {
                 ...data,
                 variationNumber: nextVariationNumber,
-                status: 'DRAFT',
+                status: 'SUBMITTED',
                 workflow: {
                     stage: 'ACCOUNTANT',
                     currentApproverRole: 'ACCOUNTANT'

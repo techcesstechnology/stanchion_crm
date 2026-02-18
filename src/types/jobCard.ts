@@ -10,6 +10,15 @@ export interface JobCardMaterial {
     units?: string;
 }
 
+export interface JobCardExpense {
+    id: string;
+    label: string;
+    category?: string;
+    amount: number;
+    notes?: string;
+    createdAt?: Timestamp | Date;
+}
+
 export interface JobCard extends BaseRequest {
     id: string;
     projectName: string;
@@ -17,6 +26,11 @@ export interface JobCard extends BaseRequest {
     clientName: string;
     clientId: string;
     materials: JobCardMaterial[];
+    expenses: JobCardExpense[];
+    // Deprecated legacy fields
+    laborCost?: number;
+    equipmentRental?: number;
+    miscExpenses?: number;
     totalCost: number;
     issuedMovementId?: string;
     returnedMovementIds?: string[];

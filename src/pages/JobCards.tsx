@@ -340,6 +340,22 @@ export default function JobCards() {
         }
     };
 
+    const handleManualSubmitVariation = async (variationId: string, reason: string) => {
+        if (!selectedJobCard) return;
+        setLoading(true);
+        try {
+            await JobCardVariationService.submitVariation(variationId, reason);
+            toast.success("Variation submitted successfully");
+            const vars = await JobCardVariationService.getVariationsForJobCard(selectedJobCard.id);
+            setVariations(vars);
+        } catch (error) {
+            console.error("Error submitting variation:", error);
+            toast.error("Failed to submit variation");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleCloseModal = () => {
         setShowCreateModal(false);
         setStep(1);
@@ -1026,6 +1042,15 @@ export default function JobCards() {
 
                                                 {/* Action Buttons for Approvers */}
                                                 <div className="flex gap-2">
+                                                    {v.status === 'DRAFT' && (
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold uppercase rounded-lg"
+                                                            onClick={(e) => { e.stopPropagation(); handleManualSubmitVariation(v.id, v.reason); }}
+                                                        >
+                                                            Submit
+                                                        </Button>
+                                                    )}
                                                     {v.status === 'SUBMITTED' && (profile?.role === 'ACCOUNTANT' || profile?.role === 'ADMIN') && (
                                                         <>
                                                             <Button
@@ -1066,7 +1091,17 @@ export default function JobCards() {
                                                     )}
                                                 </div>
 
-                                                <Button variant="ghost" size="icon" className="rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (v.status === 'DRAFT') {
+                                                            handleManualSubmitVariation(v.id, v.reason);
+                                                        }
+                                                    }}
+                                                >
                                                     <ArrowRight className="w-5 h-5" />
                                                 </Button>
                                             </div>
