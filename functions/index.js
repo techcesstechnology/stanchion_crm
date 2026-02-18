@@ -198,38 +198,64 @@ exports.onPaymentCreated = functions.firestore
 exports.onTransactionStatusUpdate = functions.firestore
     .document("transactions/{txId}")
     .onUpdate(async (change, context) => {
+        const txId = context.params.txId;
         const newValue = change.after.data();
         const previousValue = change.before.data();
+
+        console.log(`[BalanceUpdate] Trigger fired for tx ${txId}: ${previousValue.status} -> ${newValue.status}`);
 
         // Check if status changed to APPROVED_FINAL
         if (newValue.status === 'APPROVED_FINAL' && previousValue.status !== 'APPROVED_FINAL') {
             const txData = newValue;
             const db = admin.firestore();
 
-            return db.runTransaction(async (t) => {
-                if (txData.type === 'transfer' && txData.toAccountId) {
-                    const fromAccRef = db.collection("accounts").doc(txData.accountId);
-                    const toAccRef = db.collection("accounts").doc(txData.toAccountId);
+            console.log(`[BalanceUpdate] Processing: type=${txData.type}, amount=${txData.amount}, accountId=${txData.accountId}, toAccountId=${txData.toAccountId || 'N/A'}`);
 
-                    t.update(fromAccRef, {
-                        balance: admin.firestore.FieldValue.increment(-txData.amount),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    t.update(toAccRef, {
-                        balance: admin.firestore.FieldValue.increment(txData.amount),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                } else {
-                    // Determine adjustment amount for income/expense
-                    const adjustment = txData.type === 'income' ? txData.amount : -txData.amount;
-                    const accRef = db.collection("accounts").doc(txData.accountId);
+            try {
+                await db.runTransaction(async (t) => {
+                    if (txData.type === 'transfer' && txData.toAccountId) {
+                        const fromAccRef = db.collection("accounts").doc(txData.accountId);
+                        const toAccRef = db.collection("accounts").doc(txData.toAccountId);
 
-                    t.update(accRef, {
-                        balance: admin.firestore.FieldValue.increment(adjustment),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-            });
+                        // Verify accounts exist
+                        const fromSnap = await t.get(fromAccRef);
+                        const toSnap = await t.get(toAccRef);
+                        if (!fromSnap.exists) console.error(`[BalanceUpdate] Source account ${txData.accountId} NOT FOUND!`);
+                        if (!toSnap.exists) console.error(`[BalanceUpdate] Dest account ${txData.toAccountId} NOT FOUND!`);
+
+                        t.update(fromAccRef, {
+                            balance: admin.firestore.FieldValue.increment(-txData.amount),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        t.update(toAccRef, {
+                            balance: admin.firestore.FieldValue.increment(txData.amount),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`[BalanceUpdate] Transfer: -${txData.amount} from ${txData.accountId}, +${txData.amount} to ${txData.toAccountId}`);
+                    } else {
+                        const adjustment = txData.type === 'income' ? txData.amount : -txData.amount;
+                        const accRef = db.collection("accounts").doc(txData.accountId);
+
+                        // Verify account exists
+                        const accSnap = await t.get(accRef);
+                        if (!accSnap.exists) {
+                            console.error(`[BalanceUpdate] Account ${txData.accountId} NOT FOUND! Current accounts in DB need checking.`);
+                        }
+
+                        t.update(accRef, {
+                            balance: admin.firestore.FieldValue.increment(adjustment),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`[BalanceUpdate] ${txData.type}: adjustment=${adjustment} on account ${txData.accountId}`);
+                    }
+                });
+                console.log(`[BalanceUpdate] SUCCESS for tx ${txId}`);
+            } catch (error) {
+                console.error(`[BalanceUpdate] FAILED for tx ${txId}:`, error);
+                throw error;
+            }
+        } else {
+            console.log(`[BalanceUpdate] Skipped: not a transition to APPROVED_FINAL`);
         }
         return null;
     });
@@ -342,46 +368,9 @@ exports.approveRequest = functions.https.onCall(async (data, context) => {
                         transaction.update(requestRef, { issuedMovementId: movementId });
                     }
                 }
-                // --- Finance Balance Integration (Final Approval) ---
-                if (type === 'financeTransaction' && !requestData.appliedAt) {
-                    const amount = requestData.amount;
-                    const txType = requestData.type; // INCOME, EXPENSE, TRANSFER
-
-                    if (txType === 'INCOME' || txType === 'TRANSFER') {
-                        const targetRef = db.collection("financeAccounts").doc(requestData.targetAccountId);
-                        const targetSnap = await transaction.get(targetRef);
-                        if (!targetSnap.exists) throw new functions.https.HttpsError("not-found", "Target finance account not found.");
-                        transaction.update(targetRef, {
-                            balance: admin.firestore.FieldValue.increment(amount),
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-
-                    if (txType === 'EXPENSE' || txType === 'TRANSFER') {
-                        const sourceRef = db.collection("financeAccounts").doc(requestData.sourceAccountId);
-                        const sourceSnap = await transaction.get(sourceRef);
-                        if (!sourceSnap.exists) throw new functions.https.HttpsError("not-found", "Source finance account not found.");
-
-                        // Optional: Enforce no negative balance for certain account types
-                        // if (sourceSnap.data().balance < amount) throw ...
-
-                        transaction.update(sourceRef, {
-                            balance: admin.firestore.FieldValue.increment(-amount),
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-
-                    // Mark as applied atomically
-                    transaction.update(requestRef, {
-                        appliedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        // PDF Metadata Placeholder (C3 Step)
-                        pdfGenerated: false
-                    });
-
-                    // [NOTE: C4 Step will trigger PDF generation via another function or task]
-                }
-                // ----------------------------------------------------
-                // --------------------------------------------------
+                // Balance updates for transactions are handled by the
+                // onTransactionStatusUpdate Firestore trigger, which fires
+                // when this function sets the status to APPROVED_FINAL.
             } else {
                 throw new functions.https.HttpsError("failed-precondition", `Invalid status for approval: ${requestData.status}`);
             }
@@ -673,4 +662,6 @@ exports.triggerPDF = functions.https.onRequest(async (req, res) => {
         res.status(500).send(`Error: ${e.message}`);
     }
 });
+
+
 

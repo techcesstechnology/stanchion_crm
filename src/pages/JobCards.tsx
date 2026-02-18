@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { Timestamp } from "firebase/firestore";
+import { cn } from "@/lib/cn";
 import { JobCard, JobCardMaterial } from "@/types/jobCard";
 import { CatalogItem, Contact } from "@/types";
 import { JobCardService } from "@/services/jobCardService";
@@ -11,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { EnterpriseModal as Modal } from "@/components/ui/EnterpriseModal";
 import {
     Plus,
     Search,
@@ -26,7 +29,8 @@ import {
     ShoppingCart,
     User,
     Package,
-    FileDown
+    FileDown,
+    X
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -50,6 +54,10 @@ export default function JobCards() {
         clientId: ""
     });
     const [selectedMaterials, setSelectedMaterials] = useState<JobCardMaterial[]>([]);
+
+    // Detail Modal State
+    const [selectedJobCard, setSelectedJobCard] = useState<JobCard | null>(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -240,12 +248,19 @@ export default function JobCards() {
             ) : (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                     {filteredCards.map((card) => (
-                        <Card key={card.id} className="group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900 border-l-4 border-l-green-500 flex flex-col">
+                        <Card
+                            key={card.id}
+                            onClick={() => {
+                                setSelectedJobCard(card);
+                                setShowDetailsModal(true);
+                            }}
+                            className="group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900 border-l-4 border-l-green-500 flex flex-col cursor-pointer"
+                        >
                             <CardHeader className="pb-3 bg-slate-50/30 dark:bg-slate-800/20">
                                 <div className="flex justify-between items-start mb-2">
                                     {getStatusBadge(card.status)}
-                                    <span className="text-xs font-medium text-slate-400">
-                                        {format(card.createdAt instanceof Date ? card.createdAt : card.createdAt.toDate(), "MMM dd, yyyy")}
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+                                        REF: {card.id.substring(0, 8).toUpperCase()}
                                     </span>
                                 </div>
                                 <CardTitle className="text-lg font-bold text-slate-800 dark:text-white line-clamp-1 group-hover:text-green-600 transition-colors uppercase tracking-tight">{card.projectName}</CardTitle>
@@ -426,7 +441,7 @@ export default function JobCards() {
                                                 <div key={item.id} className="p-4 flex items-center justify-between hover:bg-white dark:hover:bg-slate-800 transition-all group cursor-pointer" onClick={() => handleAddMaterial(item)}>
                                                     <div>
                                                         <p className="font-black text-sm text-slate-800 dark:text-slate-200 group-hover:text-green-600 transition-colors">{item.name}</p>
-                                                        <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">${item.price.toFixed(2)} / {(item as any).unit || 'pcs'}</p>
+                                                        <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">${item.price.toFixed(2)} / {item.unit || 'pcs'}</p>
                                                     </div>
                                                     <div className="h-10 w-10 rounded-full border-2 border-slate-100 dark:border-slate-800 flex items-center justify-center text-slate-300 group-hover:bg-green-600 group-hover:border-green-600 group-hover:text-white transition-all">
                                                         <Plus className="w-6 h-6" />
@@ -546,6 +561,142 @@ export default function JobCards() {
                     </Card>
                 </div>
             )}
+
+            {/* Job Card Details Modal */}
+            <Modal
+                isOpen={showDetailsModal}
+                onClose={() => setShowDetailsModal(false)}
+                title="Job Card Identification"
+            >
+                {selectedJobCard && (
+                    <div className="space-y-8">
+                        <div className="flex items-start justify-between bg-slate-50 dark:bg-slate-900 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <div>
+                                <div className="flex items-center gap-3 mb-3">
+                                    {getStatusBadge(selectedJobCard.status)}
+                                    <span className="text-[9px] font-bold text-slate-400">
+                                        {format(selectedJobCard.createdAt instanceof Date ? selectedJobCard.createdAt : (selectedJobCard.createdAt as Timestamp).toDate(), "MMM dd, yyyy")}
+                                    </span>
+                                </div>
+                                <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter leading-none">
+                                    {selectedJobCard.projectName}
+                                </h3>
+                                <div className="flex items-center gap-2 text-green-600 font-bold mt-3 text-sm">
+                                    <User className="w-4 h-4 text-green-600" />
+                                    {selectedJobCard.clientName}
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date Recorded</p>
+                                <p className="font-bold text-slate-800 dark:text-white mt-1">
+                                    {format(selectedJobCard.createdAt instanceof Date ? selectedJobCard.createdAt : (selectedJobCard.createdAt as Timestamp).toDate(), "MMM dd, yyyy")}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Statement of Work</Label>
+                            <div className="p-5 bg-white dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 italic text-slate-600 dark:text-slate-400 leading-relaxed text-sm">
+                                "{selectedJobCard.description || "No project description provided."}"
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated Inventory & Resources</Label>
+                                <div className="h-6 px-3 bg-green-500/10 text-green-600 rounded-full flex items-center gap-2 border border-green-500/20">
+                                    <Package className="w-3 h-3" />
+                                    <span className="text-[10px] font-black uppercase">{selectedJobCard.materials?.length || 0} ITEMS</span>
+                                </div>
+                            </div>
+                            <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-950">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                                        <tr>
+                                            <th className="px-5 py-4 font-black uppercase tracking-widest text-slate-400 text-[9px]">Material Description</th>
+                                            <th className="px-5 py-4 font-black uppercase tracking-widest text-slate-400 text-[9px] text-center">Qty</th>
+                                            <th className="px-5 py-4 font-black uppercase tracking-widest text-slate-400 text-[9px] text-right">Unit Cost</th>
+                                            <th className="px-5 py-4 font-black uppercase tracking-widest text-slate-400 text-[9px] text-right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
+                                        {selectedJobCard.materials.map((mat, i) => (
+                                            <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors">
+                                                <td className="px-5 py-4 font-bold text-slate-700 dark:text-slate-300 uppercase">{mat.name}</td>
+                                                <td className="px-5 py-4 font-black text-center text-slate-500 uppercase">{mat.quantity} <span className="text-[10px] text-slate-400 opacity-50">{mat.units || 'pcs'}</span></td>
+                                                <td className="px-5 py-4 text-right font-bold text-slate-500 tabular-nums">${mat.unitCost.toFixed(2)}</td>
+                                                <td className="px-5 py-4 text-right font-black text-slate-900 dark:text-white tabular-nums">${mat.totalCost.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50/30 dark:bg-slate-900/30">
+                                        <tr>
+                                            <td colSpan={3} className="px-5 py-5 text-right font-black text-[10px] uppercase tracking-widest text-slate-400">Project Budget Total:</td>
+                                            <td className="px-5 py-5 text-right font-black text-xl text-green-600 tabular-nums italic">
+                                                ${selectedJobCard.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Approval Trail */}
+                        {selectedJobCard.approvalTrail && selectedJobCard.approvalTrail.length > 0 && (
+                            <div className="space-y-4">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Workflow Execution History</Label>
+                                <div className="space-y-3">
+                                    {selectedJobCard.approvalTrail.map((trail, i) => (
+                                        <div key={i} className="flex gap-4 items-start p-4 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <div className={cn(
+                                                "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
+                                                trail.action === 'APPROVE' ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
+                                            )}>
+                                                {trail.action === 'APPROVE' ? <CheckCircle2 className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <p className="text-[10px] font-black uppercase tracking-tight italic">
+                                                        {trail.action}D BY {trail.stage}
+                                                    </p>
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighterTabular">
+                                                        {format(trail.at instanceof Date ? trail.at : (trail.at as Timestamp).toDate(), "MMM dd, HH:mm")}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{trail.byName}</p>
+                                                {trail.note && (
+                                                    <p className="text-xs text-slate-500 mt-2 italic border-l-4 border-slate-200 dark:border-slate-800 pl-3 leading-relaxed">
+                                                        "{trail.note}"
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                            {selectedJobCard.status === 'APPROVED_FINAL' && selectedJobCard.approvalLetter?.url && (
+                                <Button
+                                    className="flex-1 h-14 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase italic tracking-widest rounded-2xl shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98]"
+                                    onClick={() => window.open(selectedJobCard.approvalLetter?.url, '_blank')}
+                                >
+                                    <FileDown className="w-5 h-5 mr-3" />
+                                    Download Certification
+                                </Button>
+                            )}
+                            <Button
+                                variant="outline"
+                                className="h-14 px-8 border-2 border-slate-100 dark:border-slate-800 text-slate-500 font-black uppercase tracking-widest rounded-2xl hover:bg-slate-50 transition-all active:scale-[0.98]"
+                                onClick={() => setShowDetailsModal(false)}
+                            >
+                                CLOSE
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }

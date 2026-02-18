@@ -59,10 +59,88 @@ exports.generateApprovalLetter = functions.firestore
             const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
             const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
+            // Fetch Company Settings for Logo and Seal
+            console.log(`Fetching settings/company-config...`);
+            const compSettingsSnap = await db.collection('settings').doc('company-config').get();
+            const companySettings = compSettingsSnap.exists ? compSettingsSnap.data() : {};
+            console.log(`Settings fetched. LogoUrl: ${companySettings.logoUrl ? 'Yes' : 'No'}, SealUrl: ${companySettings.officialSealUrl ? 'Yes' : 'No'}`);
+
+            // --- EMBED LOGO ---
+            if (companySettings.logoUrl) {
+                try {
+                    console.log("Processing logo image...");
+                    let logoBuffer;
+                    if (companySettings.logoUrl.startsWith('data:image')) {
+                        console.log("Logo is base64 data");
+                        const base64Data = companySettings.logoUrl.split(',')[1];
+                        logoBuffer = Buffer.from(base64Data, 'base64');
+                    } else {
+                        console.log(`Fetching logo from URL: ${companySettings.logoUrl.substring(0, 50)}...`);
+                        const axios = require('axios');
+                        const response = await axios.get(companySettings.logoUrl, { responseType: 'arraybuffer' });
+                        logoBuffer = Buffer.from(response.data);
+                    }
+
+                    console.log(`Logo buffer size: ${logoBuffer.length} bytes`);
+                    const isPng = companySettings.logoUrl.includes('image/png') || companySettings.logoUrl.toLowerCase().endsWith('.png');
+                    const logoImage = isPng ? await pdfDoc.embedPng(logoBuffer) : await pdfDoc.embedJpg(logoBuffer);
+
+                    const logoDims = logoImage.scale(0.2); // Smaller scale
+                    console.log(`Logo embedded. Dims: ${logoDims.width}x${logoDims.height}`);
+
+                    // Draw logo at top-right
+                    page.drawImage(logoImage, {
+                        x: width - logoDims.width - 50,
+                        y: height - logoDims.height - 40, // 40pt from top
+                        width: logoDims.width,
+                        height: logoDims.height,
+                    });
+                    console.log("Logo drawn on page.");
+                } catch (imgError) {
+                    console.error("Critical Error embedding/drawing logo:", imgError);
+                }
+            }
+
+            // --- EMBED WATERMARK SEAL ---
+            if (companySettings.officialSealUrl) {
+                try {
+                    console.log("Processing seal image...");
+                    let sealBuffer;
+                    if (companySettings.officialSealUrl.startsWith('data:image')) {
+                        console.log("Seal is base64 data");
+                        const base64Data = companySettings.officialSealUrl.split(',')[1];
+                        sealBuffer = Buffer.from(base64Data, 'base64');
+                    } else {
+                        console.log(`Fetching seal from URL: ${companySettings.officialSealUrl.substring(0, 50)}...`);
+                        const axios = require('axios');
+                        const response = await axios.get(companySettings.officialSealUrl, { responseType: 'arraybuffer' });
+                        sealBuffer = Buffer.from(response.data);
+                    }
+
+                    console.log(`Seal buffer size: ${sealBuffer.length} bytes`);
+                    const isPng = companySettings.officialSealUrl.includes('image/png') || companySettings.officialSealUrl.toLowerCase().endsWith('.png');
+                    const sealImage = isPng ? await pdfDoc.embedPng(sealBuffer) : await pdfDoc.embedJpg(sealBuffer);
+
+                    const sealDims = sealImage.scale(0.5); // Center watermark
+                    console.log(`Seal embedded. Dims: ${sealDims.width}x${sealDims.height}`);
+
+                    page.drawImage(sealImage, {
+                        x: (width / 2) - (sealDims.width / 2),
+                        y: (height / 2) - (sealDims.height / 2),
+                        width: sealDims.width,
+                        height: sealDims.height,
+                        opacity: 0.1, // Clearer watermark
+                    });
+                    console.log("Watermark drawn on page.");
+                } catch (imgError) {
+                    console.error("Critical Error embedding/drawing seal:", imgError);
+                }
+            }
+
             // Header
             page.drawText('APPROVAL LETTER', {
                 x: 50,
-                y: height - 50,
+                y: height - 60, // Shift text down slightly
                 size: 24,
                 font: helveticaBold,
                 color: rgb(0, 0.2, 0.4)
@@ -70,16 +148,16 @@ exports.generateApprovalLetter = functions.firestore
 
             page.drawText(refNo, {
                 x: 50,
-                y: height - 80,
-                size: 12,
+                y: height - 90,
+                size: 10,
                 font: helvetica,
                 color: rgb(0.3, 0.3, 0.3)
             });
 
             // Horizontal line
             page.drawLine({
-                start: { x: 50, y: height - 95 },
-                end: { x: width - 50, y: height - 95 },
+                start: { x: 50, y: height - 105 },
+                end: { x: width - 50, y: height - 105 },
                 thickness: 1,
                 color: rgb(0.7, 0.7, 0.7)
             });

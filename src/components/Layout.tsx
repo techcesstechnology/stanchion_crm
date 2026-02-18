@@ -68,6 +68,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { name: "Invoices", href: "/invoices", icon: FileText },
         { name: "Inquiries", href: "/inquiries", icon: MessageSquare },
         { name: "Item Catalog", href: "/catalog", icon: Package },
+        { name: "Inventory", href: "/inventory", icon: Package },
         { name: "How To Guide", href: "/how-to", icon: HelpCircle },
         { name: "Settings", href: "/settings", icon: Settings },
     ];

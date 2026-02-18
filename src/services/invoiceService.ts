@@ -1,6 +1,6 @@
 import { db } from "@/lib/firebase";
 import { Invoice, Quote, UserProfile } from "@/types";
-import { collection, addDoc, getDocs, updateDoc, doc, serverTimestamp, query, orderBy, where, runTransaction } from "firebase/firestore";
+import { collection, addDoc, getDocs, updateDoc, doc, serverTimestamp, query, orderBy, where, runTransaction, increment } from "firebase/firestore";
 
 const INVOICE_COLLECTION = "invoices";
 const QUOTE_COLLECTION = "quotes";
@@ -173,38 +173,47 @@ export const InvoiceService = {
         }
 
         return await runTransaction(db, async (transaction) => {
-            // 1. Create the finance transaction first to get its ID
-            const txRef = doc(collection(db, "financeTransactions"));
+            // 1. Create an auto-approved transaction in the 'transactions' collection
+            //    Invoice payments bypass the approval workflow entirely.
+            const txRef = doc(collection(db, "transactions"));
             const financeTxId = txRef.id;
 
             const financeTxData = {
-                type: 'INCOME',
+                type: 'income',
                 amount: payment.amount,
-                currency: "USD", // Default or fetch from account
-                targetAccountId: payment.destinationAccountId,
+                accountId: payment.destinationAccountId,
+                category: 'Invoice Payment',
+                description: `Payment for Invoice ${payment.invoiceNumber || payment.invoiceId}`,
                 referenceType: 'INVOICE_PAYMENT',
                 referenceId: payment.invoiceId,
                 date: serverTimestamp(),
-                status: 'SUBMITTED',
+                status: 'APPROVED_FINAL',
                 workflow: {
-                    stage: 'ACCOUNTANT',
+                    stage: 'DONE',
                     submittedAt: serverTimestamp(),
-                    currentApproverRole: 'ACCOUNTANT'
+                    currentApproverRole: 'NONE'
                 },
                 submittedBy: payment.recordedBy || { uid: "system", name: "System" },
                 approvalTrail: [{
-                    stage: 'ACCOUNTANT',
-                    action: 'SUBMIT',
+                    stage: 'SYSTEM',
+                    action: 'AUTO_APPROVE',
                     byUid: payment.recordedBy?.uid || "system",
                     byName: payment.recordedBy?.name || "System",
                     at: new Date(),
-                    note: `Payment recorded for Invoice ${payment.invoiceNumber}`
+                    note: `Invoice payment auto-approved — no approval required`
                 }]
             };
 
             transaction.set(txRef, sanitizeData(financeTxData));
 
-            // 2. Create the payment record with the link
+            // 2. Directly update the account balance (atomic, instant)
+            const accountRef = doc(db, "accounts", payment.destinationAccountId);
+            transaction.update(accountRef, {
+                balance: increment(payment.amount),
+                updatedAt: serverTimestamp()
+            });
+
+            // 3. Create the payment record in 'payments' collection
             const paymentRef = doc(collection(db, "payments"));
             const paymentData = {
                 ...payment,

@@ -14,7 +14,8 @@ import {
     serverTimestamp,
     query,
     orderBy,
-    limit
+    limit,
+    onSnapshot
 } from "firebase/firestore";
 
 const ACCOUNTS_COLLECTION = "accounts";
@@ -109,5 +110,22 @@ export const FinanceService = {
         const q = query(collection(db, TRANSACTIONS_COLLECTION), orderBy("date", "desc"), limit(l));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
+    },
+
+    // Real-time listener for accounts
+    subscribeToAccounts: (callback: (accounts: AccountBalance[]) => void) => {
+        return onSnapshot(collection(db, ACCOUNTS_COLLECTION), (snapshot) => {
+            const accs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccountBalance));
+            callback(accs);
+        });
+    },
+
+    // Real-time listener for transactions
+    subscribeToTransactions: (l: number, callback: (txs: Transaction[]) => void) => {
+        const q = query(collection(db, TRANSACTIONS_COLLECTION), orderBy("date", "desc"), limit(l));
+        return onSnapshot(q, (snapshot) => {
+            const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
+            callback(txs);
+        });
     }
 };

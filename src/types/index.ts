@@ -199,6 +199,14 @@ export interface CatalogItem {
     price: number;
     stock: number;
     unit?: string;
+    pricing?: {
+        purchasePrice: number;
+        freightAndDuty: number;
+        totalCost: number;
+        markupPercent: number;
+        sellingPrice: number;
+        twidMarkupPercent: number;
+    };
     createdAt: Date | Timestamp;
     updatedAt: Date | Timestamp;
 }

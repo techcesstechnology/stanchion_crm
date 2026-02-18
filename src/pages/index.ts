@@ -13,4 +13,5 @@ export { default as Catalog } from './Catalog';
 export { default as Inquiries } from './Inquiries';
 export { default as JobCards } from './JobCards';
 export { default as Finance } from './Finance';
+export { default as Inventory } from './Inventory';
 export { default as SuperAdmin } from './SuperAdmin';

@@ -30,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { cn } from "@/lib/cn";
 
 export default function Finance() {
@@ -61,6 +61,26 @@ export default function Finance() {
 
     useEffect(() => {
         loadFinanceData();
+    }, []);
+
+    // Real-time listener for accounts
+    useEffect(() => {
+        const unsub = FinanceService.subscribeToAccounts((accs) => {
+            setAccounts(accs);
+            if (accs.length > 0 && !formData.accountId) {
+                setFormData(prev => ({ ...prev, accountId: accs[0].id }));
+            }
+        });
+        return () => unsub();
+    }, []);
+
+    // Real-time listener for transactions
+    useEffect(() => {
+        const unsub = FinanceService.subscribeToTransactions(20, (txs) => {
+            setTransactions(txs);
+            setLoading(false);
+        });
+        return () => unsub();
     }, []);
 
     const loadFinanceData = async () => {
@@ -235,6 +255,17 @@ export default function Finance() {
 
     const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
+    // Compute real 30-day velocity from approved transactions
+    const thirtyDaysAgo = subDays(new Date(), 30);
+    const recentApproved = transactions.filter(tx => {
+        if (tx.status !== 'APPROVED_FINAL') return false;
+        if (!tx.date) return true; // include pending-timestamp transactions
+        const txDate = tx.date instanceof Date ? tx.date : (tx.date as any).toDate?.() || new Date();
+        return txDate >= thirtyDaysAgo;
+    });
+    const inflow30d = recentApproved.filter(tx => tx.type === 'income').reduce((sum, tx) => sum + tx.amount, 0);
+    const outflow30d = recentApproved.filter(tx => tx.type === 'expense').reduce((sum, tx) => sum + tx.amount, 0);
+
     return (
         <div className="space-y-8 text-slate-900 dark:text-slate-100 p-2 sm:p-0">
             {/* Header section with Total Balance Overview */}
@@ -282,7 +313,7 @@ export default function Finance() {
                             </p>
                             <div className="flex items-center justify-between mt-6">
                                 <span className="text-[10px] font-bold text-slate-400">
-                                    Last updated {format(acc.updatedAt instanceof Date ? acc.updatedAt : (acc.updatedAt as any).toDate(), "HH:mm")}
+                                    Last updated {acc.updatedAt ? format(acc.updatedAt instanceof Date ? acc.updatedAt : (acc.updatedAt as any).toDate?.() || new Date(), "HH:mm") : "--:--"}
                                 </span>
                                 <Button variant="ghost" size="sm" className="h-7 text-[10px] font-black uppercase tracking-widest text-green-600 hover:text-green-700 hover:bg-green-50 dark:bg-slate-900">
                                     Details
@@ -343,7 +374,7 @@ export default function Finance() {
                                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{tx.category}</span>
                                                     <span className="h-1 w-1 rounded-full bg-slate-300" />
                                                     <span className="text-[10px] font-bold text-slate-400">
-                                                        {format(tx.date instanceof Date ? tx.date : (tx.date as any).toDate(), "MMM dd, HH:mm")}
+                                                        {tx.date ? format(tx.date instanceof Date ? tx.date : (tx.date as any).toDate?.() || new Date(), "MMM dd, HH:mm") : "Just now"}
                                                     </span>
                                                 </div>
                                             </div>
@@ -490,7 +521,7 @@ export default function Finance() {
                                     </div>
                                     <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Inflow</span>
                                 </div>
-                                <span className="text-sm font-black text-green-600">+$2,450.00</span>
+                                <span className="text-sm font-black text-green-600">+${inflow30d.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -499,7 +530,7 @@ export default function Finance() {
                                     </div>
                                     <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Outflow</span>
                                 </div>
-                                <span className="text-sm font-black text-red-500">-$1,120.00</span>
+                                <span className="text-sm font-black text-red-500">-${outflow30d.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                             </div>
                         </div>
                     </div>

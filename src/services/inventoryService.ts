@@ -14,17 +14,27 @@ import { UserProfile } from "@/types";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/lib/firebase";
 
-const ITEMS_COLLECTION = "inventoryItems";
+const ITEMS_COLLECTION = "catalogItems";
 const MOVEMENTS_COLLECTION = "inventoryMovements";
 
 const processReturnFn = httpsCallable(functions, 'processReturn');
 
 export const InventoryService = {
-    // Get all inventory items
+    // Get all inventory items from the catalog
     getInventoryItems: async (): Promise<InventoryItem[]> => {
-        const q = query(collection(db, ITEMS_COLLECTION), orderBy("sku", "asc"));
+        const q = query(collection(db, ITEMS_COLLECTION), orderBy("name", "asc"));
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem));
+        return snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                sku: data.sku || "N/A", // Catalog items might not have SKU yet
+                name: data.name || "Unnamed Item",
+                unit: data.unit || "Unit",
+                onHandQty: data.stock || 0,
+                updatedAt: data.updatedAt
+            } as InventoryItem;
+        });
     },
 
     // Get all inventory movements
