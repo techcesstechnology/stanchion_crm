@@ -369,7 +369,7 @@ export default function JobCards() {
         setSelectedMaterials([]);
     };
 
-    const getStatusBadge = (status: JobCard['status']) => {
+    const getStatusBadge = (status: string) => {
         switch (status) {
             case "APPROVED_FINAL": return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Approved</Badge>;
             case "SUBMITTED": return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200"><Clock className="w-3 h-3 mr-1" /> Pending (Acc)</Badge>;
@@ -380,6 +380,100 @@ export default function JobCards() {
             default: return <Badge variant="secondary">{status}</Badge>;
         }
     };
+
+    const VariationListItem = ({ v, profile, onApprove, onReject, onManualSubmit }: {
+        v: JobCardVariation,
+        profile: UserProfile | null,
+        onApprove: (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => void,
+        onReject: (id: string, stage: 'ACCOUNTANT' | 'MANAGER') => void,
+        onManualSubmit: (id: string, reason: string) => void
+    }) => (
+        <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group hover:border-blue-200 transition-all shadow-sm">
+            <div className="flex items-center gap-4">
+                <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center font-black text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
+                    #{v.variationNumber}
+                </div>
+                <div>
+                    <div className="flex items-center gap-2 mb-1">
+                        <p className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Variation #{v.variationNumber}</p>
+                        {getStatusBadge(v.status)}
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                        Reason: {v.reason.length > 40 ? v.reason.substring(0, 40) + "..." : v.reason}
+                    </p>
+                </div>
+            </div>
+            <div className="text-right flex items-center gap-4">
+                <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Impact</p>
+                    <p className="font-black text-slate-800 dark:text-white tabular-nums">${v.totals.grandTotal.toLocaleString()}</p>
+                </div>
+
+                {/* Action Buttons for Approvers */}
+                {profile && (
+                    <div className="flex gap-2">
+                        {v.status === 'SUBMITTED' && (profile.role === 'ACCOUNTANT' || profile.role === 'ADMIN') && (
+                            <>
+                                <Button
+                                    size="sm"
+                                    className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase rounded-lg"
+                                    onClick={(e) => { e.stopPropagation(); onApprove(v.id, 'ACCOUNTANT'); }}
+                                >
+                                    Approve
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="h-8 px-3 text-[10px] font-bold uppercase rounded-lg"
+                                    onClick={(e) => { e.stopPropagation(); onReject(v.id, 'ACCOUNTANT'); }}
+                                >
+                                    Reject
+                                </Button>
+                            </>
+                        )}
+                        {v.status === 'APPROVED_BY_ACCOUNTANT' && (profile.role === 'MANAGER' || profile.role === 'ADMIN') && (
+                            <>
+                                <Button
+                                    size="sm"
+                                    className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase rounded-lg"
+                                    onClick={(e) => { e.stopPropagation(); onApprove(v.id, 'MANAGER'); }}
+                                >
+                                    Approve
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="h-8 px-3 text-[10px] font-bold uppercase rounded-lg"
+                                    onClick={(e) => { e.stopPropagation(); onReject(v.id, 'MANAGER'); }}
+                                >
+                                    Reject
+                                </Button>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {v.status === 'DRAFT' && v.submittedBy.uid === profile?.uid && (
+                    <Button
+                        size="sm"
+                        className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold uppercase rounded-lg"
+                        onClick={(e) => { e.stopPropagation(); onManualSubmit(v.id, v.reason); }}
+                    >
+                        Submit
+                    </Button>
+                )}
+
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); }}
+                >
+                    <ArrowRight className="w-5 h-5" />
+                </Button>
+            </div>
+        </div>
+    );
 
     const filteredCards = jobCards.filter(card =>
         card.projectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1017,96 +1111,93 @@ export default function JobCards() {
                                     <p className="text-sm font-bold uppercase tracking-widest">No variations requested yet</p>
                                 </div>
                             ) : (
-                                <div className="grid gap-3">
-                                    {variations.map((v) => (
-                                        <div key={v.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group hover:border-blue-200 transition-all shadow-sm">
-                                            <div className="flex items-center gap-4">
-                                                <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center font-black text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
-                                                    #{v.variationNumber}
-                                                </div>
-                                                <div>
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <p className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Variation #{v.variationNumber}</p>
-                                                        {getStatusBadge(v.status)}
+                                <div className="space-y-6">
+                                    {/* SECTION: PENDING APPROVALS */}
+                                    {(profile?.role === 'ACCOUNTANT' || profile?.role === 'MANAGER' || profile?.role === 'ADMIN') && (
+                                        <div className="space-y-3">
+                                            {variations.some(v =>
+                                                (profile.role === 'ACCOUNTANT' && v.status === 'SUBMITTED') ||
+                                                (profile.role === 'MANAGER' && v.status === 'APPROVED_BY_ACCOUNTANT') ||
+                                                (profile.role === 'ADMIN' && ['SUBMITTED', 'APPROVED_BY_ACCOUNTANT'].includes(v.status))
+                                            ) && (
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <div className="w-1 h-3 bg-orange-500 rounded-full" />
+                                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-orange-600">Pending Your Approval</h3>
                                                     </div>
-                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                                        Reason: {v.reason.length > 40 ? v.reason.substring(0, 40) + "..." : v.reason}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right flex items-center gap-4">
-                                                <div>
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Impact</p>
-                                                    <p className="font-black text-slate-800 dark:text-white tabular-nums">${v.totals.grandTotal.toLocaleString()}</p>
-                                                </div>
-
-                                                {/* Action Buttons for Approvers */}
-                                                <div className="flex gap-2">
-                                                    {v.status === 'DRAFT' && (
-                                                        <Button
-                                                            size="sm"
-                                                            className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold uppercase rounded-lg"
-                                                            onClick={(e) => { e.stopPropagation(); handleManualSubmitVariation(v.id, v.reason); }}
-                                                        >
-                                                            Submit
-                                                        </Button>
-                                                    )}
-                                                    {v.status === 'SUBMITTED' && (profile?.role === 'ACCOUNTANT' || profile?.role === 'ADMIN') && (
-                                                        <>
-                                                            <Button
-                                                                size="sm"
-                                                                className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase rounded-lg"
-                                                                onClick={(e) => { e.stopPropagation(); handleApproveVariation(v.id, 'ACCOUNTANT'); }}
-                                                            >
-                                                                Approve
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="destructive"
-                                                                className="h-8 px-3 text-[10px] font-bold uppercase rounded-lg"
-                                                                onClick={(e) => { e.stopPropagation(); handleRejectVariation(v.id, 'ACCOUNTANT'); }}
-                                                            >
-                                                                Reject
-                                                            </Button>
-                                                        </>
-                                                    )}
-                                                    {v.status === 'APPROVED_BY_ACCOUNTANT' && (profile?.role === 'MANAGER' || profile?.role === 'ADMIN') && (
-                                                        <>
-                                                            <Button
-                                                                size="sm"
-                                                                className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase rounded-lg"
-                                                                onClick={(e) => { e.stopPropagation(); handleApproveVariation(v.id, 'MANAGER'); }}
-                                                            >
-                                                                Approve
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="destructive"
-                                                                className="h-8 px-3 text-[10px] font-bold uppercase rounded-lg"
-                                                                onClick={(e) => { e.stopPropagation(); handleRejectVariation(v.id, 'MANAGER'); }}
-                                                            >
-                                                                Reject
-                                                            </Button>
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (v.status === 'DRAFT') {
-                                                            handleManualSubmitVariation(v.id, v.reason);
-                                                        }
-                                                    }}
-                                                >
-                                                    <ArrowRight className="w-5 h-5" />
-                                                </Button>
-                                            </div>
+                                                )}
+                                            {variations
+                                                .filter(v =>
+                                                    (profile.role === 'ACCOUNTANT' && v.status === 'SUBMITTED') ||
+                                                    (profile.role === 'MANAGER' && v.status === 'APPROVED_BY_ACCOUNTANT') ||
+                                                    (profile.role === 'ADMIN' && ['SUBMITTED', 'APPROVED_BY_ACCOUNTANT'].includes(v.status))
+                                                )
+                                                .map((v) => (
+                                                    <VariationListItem
+                                                        key={v.id}
+                                                        v={v}
+                                                        profile={profile}
+                                                        onApprove={handleApproveVariation}
+                                                        onReject={handleRejectVariation}
+                                                        onManualSubmit={handleManualSubmitVariation}
+                                                    />
+                                                ))
+                                            }
                                         </div>
-                                    ))}
+                                    )}
+
+                                    {/* SECTION: YOUR VARIATIONS */}
+                                    <div className="space-y-3">
+                                        {variations.some(v => v.submittedBy.uid === profile?.uid) && (
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                                                <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-600">Your Variations</h3>
+                                            </div>
+                                        )}
+                                        {variations
+                                            .filter(v => v.submittedBy.uid === profile?.uid)
+                                            .map((v) => (
+                                                <VariationListItem
+                                                    key={v.id}
+                                                    v={v}
+                                                    profile={profile}
+                                                    onApprove={handleApproveVariation}
+                                                    onReject={handleRejectVariation}
+                                                    onManualSubmit={handleManualSubmitVariation}
+                                                />
+                                            ))
+                                        }
+                                    </div>
+
+                                    {/* SECTION: ALL OTHER VARIATIONS */}
+                                    <div className="space-y-3">
+                                        {variations.some(v =>
+                                            v.status === 'APPROVED_FINAL' ||
+                                            v.status.includes('REJECTED') ||
+                                            (v.submittedBy.uid !== profile?.uid && !(['SUBMITTED', 'APPROVED_BY_ACCOUNTANT'].includes(v.status)))
+                                        ) && (
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="w-1 h-3 bg-slate-400 rounded-full" />
+                                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Variation History</h3>
+                                                </div>
+                                            )}
+                                        {variations
+                                            .filter(v =>
+                                                v.status === 'APPROVED_FINAL' ||
+                                                v.status.includes('REJECTED') ||
+                                                (v.submittedBy.uid !== profile?.uid && !(['SUBMITTED', 'APPROVED_BY_ACCOUNTANT'].includes(v.status)))
+                                            )
+                                            .map((v) => (
+                                                <VariationListItem
+                                                    key={v.id}
+                                                    v={v}
+                                                    profile={null}
+                                                    onApprove={handleApproveVariation}
+                                                    onReject={handleRejectVariation}
+                                                    onManualSubmit={handleManualSubmitVariation}
+                                                />
+                                            ))
+                                        }
+                                    </div>
                                 </div>
                             )}
                         </div>

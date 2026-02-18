@@ -66,6 +66,32 @@ export const JobCardVariationService = {
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as JobCardVariation));
     },
 
+    // Get pending variations based on role
+    getPendingVariations: async (role: string): Promise<JobCardVariation[]> => {
+        const targetStatus = role === 'ACCOUNTANT' ? 'SUBMITTED' : (role === 'MANAGER' ? 'APPROVED_BY_ACCOUNTANT' : null);
+        if (!targetStatus && role !== 'ADMIN') return [];
+
+        const q = role === 'ADMIN'
+            ? query(collection(db, COLLECTION_NAME), where("status", "in", ['SUBMITTED', 'APPROVED_BY_ACCOUNTANT']))
+            : query(collection(db, COLLECTION_NAME), where("status", "==", targetStatus));
+
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as JobCardVariation));
+    },
+
+    // Get pending variations count based on role
+    getPendingVariationsCount: async (role: string): Promise<number> => {
+        const targetStatus = role === 'ACCOUNTANT' ? 'SUBMITTED' : (role === 'MANAGER' ? 'APPROVED_BY_ACCOUNTANT' : null);
+        if (!targetStatus && role !== 'ADMIN') return 0;
+
+        const q = role === 'ADMIN'
+            ? query(collection(db, COLLECTION_NAME), where("status", "in", ['SUBMITTED', 'APPROVED_BY_ACCOUNTANT']))
+            : query(collection(db, COLLECTION_NAME), where("status", "==", targetStatus));
+
+        const snapshot = await getDocs(q);
+        return snapshot.size;
+    },
+
     // Submit for approval
     submitVariation: async (id: string, reason: string): Promise<void> => {
         const docRef = doc(db, COLLECTION_NAME, id);

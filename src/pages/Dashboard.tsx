@@ -4,6 +4,8 @@ import { TaskService } from "@/services/taskService";
 import { ActivityService } from "@/services/activityService";
 import { InquiryService } from "@/services/inquiryService";
 import { NotificationService } from "@/services/notificationService";
+import { JobCardVariationService } from "@/services/jobCardVariationService";
+import { useAuth } from "@/contexts/AuthContext";
 import { Invoice, Quote, Task } from "@/types";
 import { Activity } from "@/types/activity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +48,8 @@ export default function Dashboard() {
     const [revenueData, setRevenueData] = useState<{ name: string, value: number }[]>([]);
     const [tasks, setTasks] = useState<{ overdue: Task[], today: Task[], upcoming: Task[] }>({ overdue: [], today: [], upcoming: [] });
     const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
+    const [pendingVariations, setPendingVariations] = useState<number>(0);
+    const { role } = useAuth();
 
     // Inquiry Modal State
     const [inquiryModalOpen, setInquiryModalOpen] = useState(false);
@@ -56,11 +60,12 @@ export default function Dashboard() {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [invoices, quotes, allTasks, activities] = await Promise.all([
+                const [invoices, quotes, allTasks, activities, variationCount] = await Promise.all([
                     InvoiceService.getInvoices(),
                     InvoiceService.getQuotes(),
                     TaskService.getTasks(),
-                    ActivityService.getRecentActivities(10)
+                    ActivityService.getRecentActivities(10),
+                    role ? JobCardVariationService.getPendingVariationsCount(role) : Promise.resolve(0)
                 ]);
 
                 const processStats = (invoices: Invoice[], quotes: Quote[]) => {
@@ -154,6 +159,7 @@ export default function Dashboard() {
                 processRevenueChart(invoices);
                 processTasks(allTasks);
                 setRecentActivities(activities);
+                setPendingVariations(variationCount as number);
 
             } catch (error) {
                 console.error("Dashboard fetch error:", error);
@@ -215,6 +221,31 @@ export default function Dashboard() {
 
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-10">
+            {/* Pending Approvals Alert */}
+            {pendingVariations > 0 && (role === 'ACCOUNTANT' || role === 'MANAGER' || role === 'ADMIN') && (
+                <Card className="bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-900/50">
+                    <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-blue-100 dark:bg-blue-900/50 p-2 rounded-lg">
+                                <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-blue-900 dark:text-blue-100">Pending Variations</h3>
+                                <p className="text-sm text-blue-700 dark:text-blue-300">
+                                    There are {pendingVariations} Job Card Variations awaiting your approval.
+                                </p>
+                            </div>
+                        </div>
+                        <Button
+                            onClick={() => navigate('/job-cards')}
+                            className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+                        >
+                            View & Approve
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Header with Quick Actions */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
