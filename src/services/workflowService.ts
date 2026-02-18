@@ -16,7 +16,10 @@ const rejectRequestFn = httpsCallable(functions, 'rejectRequest');
  */
 const getRequestType = (ref: DocumentReference) => {
     const collection = ref.parent.id;
-    return collection === 'transactions' ? 'transaction' : (collection === 'jobCards' ? 'jobCard' : '');
+    if (collection === 'transactions') return 'transaction';
+    if (collection === 'jobCards') return 'jobCard';
+    if (collection === 'jobCardVariations') return 'jobCardVariation';
+    return '';
 };
 
 export const WorkflowService = {

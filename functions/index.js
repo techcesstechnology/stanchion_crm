@@ -279,7 +279,9 @@ exports.approveRequest = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("invalid-argument", "Type and ID are required.");
     }
 
-    const collectionName = type === 'transaction' ? 'transactions' : (type === 'jobCard' ? 'jobCards' : null);
+    const collectionName = type === 'transaction' ? 'transactions' :
+        (type === 'jobCard' ? 'jobCards' :
+            (type === 'jobCardVariation' ? 'jobCardVariations' : null));
     if (!collectionName) {
         throw new functions.https.HttpsError("invalid-argument", "Invalid request type.");
     }
@@ -368,9 +370,53 @@ exports.approveRequest = functions.https.onCall(async (data, context) => {
                         transaction.update(requestRef, { issuedMovementId: movementId });
                     }
                 }
+
+                // --- Treasury Integration for Additional Costs ---
+                if (type === 'jobCard') {
+                    const dynamicExpensesTotal = (requestData.expenses || []).reduce((sum, ex) => sum + (ex.amount || 0), 0);
+                    const labor = requestData.laborCost || 0;
+                    const equipment = requestData.equipmentRental || 0;
+                    const misc = requestData.miscExpenses || 0;
+                    const legacyExpensesTotal = labor + equipment + misc;
+
+                    const additionalCostsTotal = dynamicExpensesTotal > 0 ? dynamicExpensesTotal : legacyExpensesTotal;
+
+                    if (additionalCostsTotal > 0) {
+                        // Find a default account for deduction
+                        const accountsSnap = await transaction.get(db.collection("accounts").limit(1));
+                        if (!accountsSnap.empty) {
+                            const accountId = accountsSnap.docs[0].id;
+                            const txRef = db.collection("transactions").doc();
+
+                            transaction.set(txRef, {
+                                type: 'expense',
+                                status: 'APPROVED_FINAL',
+                                amount: additionalCostsTotal,
+                                accountId: accountId,
+                                category: 'Job Card Expense',
+                                description: `Additional costs (Labor, Equipment, Misc) for Job card: ${requestData.projectName}`,
+                                referenceId: id,
+                                submittedBy: requestData.submittedBy,
+                                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                workflow: { stage: 'DONE', currentApproverRole: 'NONE' },
+                                approvalTrail: [{
+                                    stage: 'SYSTEM',
+                                    action: 'APPROVE',
+                                    byUid: userUid,
+                                    byName: 'System Trigger',
+                                    at: new Date(),
+                                    note: 'Auto-generated from Job Card approval'
+                                }]
+                            });
+                        }
+                    }
+                }
+
                 // Balance updates for transactions are handled by the
                 // onTransactionStatusUpdate Firestore trigger, which fires
                 // when this function sets the status to APPROVED_FINAL.
+                // Note: The auto-generated expense above will also trigger it.
             } else {
                 throw new functions.https.HttpsError("failed-precondition", `Invalid status for approval: ${requestData.status}`);
             }
@@ -413,7 +459,9 @@ exports.rejectRequest = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("invalid-argument", "Type, ID, and Reason (note) are required.");
     }
 
-    const collectionName = type === 'transaction' ? 'transactions' : (type === 'jobCard' ? 'jobCards' : null);
+    const collectionName = type === 'transaction' ? 'transactions' :
+        (type === 'jobCard' ? 'jobCards' :
+            (type === 'jobCardVariation' ? 'jobCardVariations' : null));
     if (!collectionName) {
         throw new functions.https.HttpsError("invalid-argument", "Invalid request type.");
     }
@@ -662,6 +710,143 @@ exports.triggerPDF = functions.https.onRequest(async (req, res) => {
         res.status(500).send(`Error: ${e.message}`);
     }
 });
+
+/**
+ * Triggered when a Job Card Variation status changes to 'APPROVED_FINAL'.
+ * Deducts stock from catalog items and records a financial transaction.
+ */
+exports.onVariationStatusUpdate = functions.firestore
+    .document("jobCardVariations/{variationId}")
+    .onUpdate(async (change, context) => {
+        const variationId = context.params.variationId;
+        const newValue = change.after.data();
+        const previousValue = change.before.data();
+
+        console.log(`[VariationTrigger] Trigger fired for variation ${variationId}: ${previousValue.status} -> ${newValue.status}`);
+
+        // Check if status changed to APPROVED_FINAL
+        if (newValue.status === 'APPROVED_FINAL' && previousValue.status !== 'APPROVED_FINAL') {
+            // Idempotency check: if postings already exist, skip
+            if (newValue.postings && (newValue.postings.inventoryMovementId || newValue.postings.financeTransactionId)) {
+                console.log(`[VariationTrigger] Variation ${variationId} already processed. Skipping.`);
+                return null;
+            }
+
+            const db = admin.firestore();
+            const variationData = newValue;
+
+            try {
+                return await db.runTransaction(async (transaction) => {
+                    const postings = {};
+
+                    // 1. Process Inventory (Items)
+                    const items = variationData.items || [];
+                    if (items.length > 0) {
+                        const itemsToIssue = [];
+                        for (const item of items) {
+                            const itemRef = db.collection("catalogItems").doc(item.itemId);
+                            const itemSnap = await transaction.get(itemRef);
+
+                            if (!itemSnap.exists) {
+                                throw new Error(`Inventory item ${item.itemId} (${item.name}) not found.`);
+                            }
+
+                            const stockData = itemSnap.data();
+                            // Note: For variations, we allow stock to go negative if needed in case of emergency 
+                            if (stockData.stock < item.qty) {
+                                console.warn(`[VariationTrigger] Low stock for ${item.name}: available ${stockData.stock}, required ${item.qty}`);
+                            }
+
+                            itemsToIssue.push({
+                                ref: itemRef,
+                                currentQty: stockData.stock,
+                                requestedQty: item.qty,
+                                itemId: item.itemId
+                            });
+                        }
+
+                        // Apply stock deductions
+                        for (const issue of itemsToIssue) {
+                            transaction.update(issue.ref, {
+                                stock: issue.currentQty - issue.requestedQty,
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+
+                        // Create Movement Record
+                        const movementRef = db.collection("inventoryMovements").doc();
+                        const movementId = movementRef.id;
+                        transaction.set(movementRef, {
+                            type: 'ISSUE',
+                            items: items.map(i => ({ itemId: i.itemId, qty: i.qty })),
+                            jobCardId: variationData.jobCardId,
+                            variationId: variationId,
+                            createdBy: variationData.submittedBy,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                            note: `Variation #${variationData.variationNumber} Issue: ${variationData.reason}`
+                        });
+                        postings.inventoryMovementId = movementId;
+                    }
+
+                    // 2. Process Finance (Expenses)
+                    const expensesTotal = variationData.totals?.expensesTotal || 0;
+                    if (expensesTotal > 0) {
+                        const txRef = db.collection("transactions").doc();
+                        const txId = txRef.id;
+
+                        // Use selected account or fallback to first found account
+                        let accountId = variationData.expenseAccountId;
+                        if (!accountId) {
+                            const accountsSnap = await transaction.get(db.collection("accounts").limit(1));
+                            if (!accountsSnap.empty) accountId = accountsSnap.docs[0].id;
+                        }
+
+                        if (accountId) {
+                            transaction.set(txRef, {
+                                type: 'expense',
+                                status: 'APPROVED_FINAL',
+                                amount: expensesTotal,
+                                accountId: accountId,
+                                category: 'Job Variation Expense',
+                                description: `Variation #${variationData.variationNumber} Expenses for Job: ${variationData.jobCardNumber}`,
+                                referenceId: variationId,
+                                submittedBy: variationData.submittedBy,
+                                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                workflow: { stage: 'DONE', currentApproverRole: 'NONE' },
+                                approvalTrail: [{
+                                    stage: 'SYSTEM',
+                                    action: 'APPROVE',
+                                    byUid: 'system',
+                                    byName: 'Variation Trigger',
+                                    at: new Date(),
+                                    note: `Auto-generated from Variation #${variationData.variationNumber} approval`
+                                }]
+                            });
+                            postings.financeTransactionId = txId;
+                        } else {
+                            console.error("[VariationTrigger] No account found for expense posting.");
+                        }
+                    }
+
+                    // 3. Complete Variation Record
+                    transaction.update(change.after.ref, {
+                        postings: {
+                            ...postings,
+                            postedAt: admin.firestore.FieldValue.serverTimestamp()
+                        }
+                    });
+
+                    console.log(`[VariationTrigger] SUCCESS for variation ${variationId}`);
+                });
+            } catch (error) {
+                console.error(`[VariationTrigger] FAILED for variation ${variationId}:`, error);
+                return null;
+            }
+        }
+        return null;
+    });
+
 
 
 

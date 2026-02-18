@@ -182,6 +182,32 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /jobCardVariations/{document} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                    (request.resource.data.status == 'DRAFT' || request.resource.data.status == 'SUBMITTED') &&
+                    request.resource.data.submittedBy.uid == request.auth.uid;
+      
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        (
+          // Only allow requester to Submit or Cancel from the client
+          (resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED' && isOwner(resource.data)) ||
+          (resource.data.status != 'CANCELLED' && request.resource.data.status == 'CANCELLED' && isOwner(resource.data)) ||
+          
+          // Allow editing other fields in DRAFT
+          (resource.data.status == 'DRAFT' && isOwner(resource.data) && request.resource.data.status == 'DRAFT')
+        )
+      ) && (
+        // Field Protection: Prevent client from touching approval fields or core fields after submission
+        coreFieldsUnchanged(['postings']) &&
+        ((resource.data.status == 'DRAFT' && request.resource.data.status == 'SUBMITTED') || coreFieldsUnchanged(['approvalTrail', 'workflow'])) &&
+        (resource.data.status == 'DRAFT' || isAdmin() || coreFieldsUnchanged(['items', 'totals', 'jobCardId', 'status']))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
     match /inventoryItems/{document} {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();

@@ -27,6 +27,34 @@
                     "order": "DESCENDING"
                 }
             ]
+        },
+        {
+            "collectionGroup": "jobCardVariations",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "jobCardId",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "variationNumber",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "jobCardVariations",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "jobCardId",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "variationNumber",
+                    "order": "ASCENDING"
+                }
+            ]
         }
     ],
     "fieldOverrides": []
